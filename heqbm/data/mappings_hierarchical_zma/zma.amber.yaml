@@ -1,0 +1,42 @@
+molecule: ZMA
+
+atoms:
+  C1: B8        P2AA
+  C10: B1,B3    P2AA,P1A
+  C11: B10,B11  P2AA,P2AA
+  C12: B9,B11   P2AA,P2AB
+  C13: B11      P1A
+  C14: B3       P1B
+  C15: B2       P1A
+  C16: B1,B2    P2AB,P1B
+  C2: B8        P1A
+  C3: B9,B10    P2AB,P2AB
+  C4: B6        P1A
+  C5: B5        P1A
+  C6: B10       P1A
+  C7: B9        P1A
+  C8: B7        P1A
+  C9: B4        P1A
+  H1: B8
+  H10: B3
+  H11: B7
+  H12: B7
+  H13: B2
+  H15: B11
+  H2: B8
+  H3: B8
+  H4: B8
+  H5: B8
+  H6: B10
+  H7: B9
+  H8: B11
+  H9: B11
+  N1: B8      P2AB
+  N2: B5      P1B
+  N3: B6      P1B
+  N4: B7      P2AA
+  N5: B4      P2AA
+  N6: B4      P2AB
+  N7: B7      P2AB
+  O1: B1      P1A
+  O2: B11     P2AC

@@ -1,0 +1,52 @@
+molecule: PA
+
+atoms:
+  C12:    C1B   P2AA
+  H2R:    C1B 
+  H2S:    C1B  
+  C13:    C1B   P1A
+  H3R:    C1B
+  H3S:    C1B
+  C14:    C1B   P1B
+  H4R:    C1B 
+  H4S:    C1B 
+  C15:    C1B   P2BB
+  H5R:    C1B 
+  H5S:    C1B 
+  C16:    C2B   P2AA
+  H6R:    C2B 
+  H6S:    C2B
+  C17:    C2B   P1A
+  H7R:    C2B
+  H7S:    C2B
+  C18:    C2B   P1B
+  H8R:    C2B 
+  H8S:    C2B 
+  C19:    C2B   P2BB
+  H9R:    C2B 
+  H9S:    C2B 
+  C110:   C3B   P2AA
+  H10R:   C3B  
+  H10S:   C3B  
+  C111:   C3B   P1A
+  H11R:   C3B  
+  H11S:   C3B  
+  C112:   C3B   P1B
+  H12R:   C3B
+  H12S:   C3B
+  C113:   C3B   P2BB
+  H13R:   C3B  
+  H13S:   C3B  
+  C114:   C4B   P2AA
+  H14R:   C4B  
+  H14S:   C4B 
+  C115:   C4B   P1A
+  H15R:   C4B 
+  H15S:   C4B 
+  C116:   C4B   P2AB
+  H16R:   C4B
+  H16S:   C4B
+  H16T:   C4B
+
+
+ 

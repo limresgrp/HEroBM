@@ -1,0 +1,20 @@
+molecule: HIE
+
+atoms:
+  N:    BB    P1AA
+  H:    BB
+  CA:   BB    P0A  CM
+  HA:   BB
+  CB:   SC1   P1A
+  HB2:  SC1
+  HB3:  SC1
+  CD2:  SC2   P1A
+  HD2:  SC2
+  CG:   SC1   P1B
+  NE2:  SC2   P1B
+  HE2:  SC2   
+  ND1:  SC3   P1B
+  CE1:  SC3   P1A
+  HE1:  SC3
+  C:    BB    P1AB
+  O:    BB    P2BA

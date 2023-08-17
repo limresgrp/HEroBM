@@ -1,0 +1,41 @@
+molecule: PC
+
+atoms:
+  N31:   NC3  P1A
+  C33:   NC3  P2AA
+  C34:   NC3  P2AB
+  C35:   NC3  P2AC
+  C31:   NC3  P3DA
+  H2A:   NC3
+  H2B:   NC3
+  H3A:   NC3
+  H3B:   NC3
+  H3C:   NC3
+  H4A:   NC3
+  H4B:   NC3
+  H4C:   NC3
+  H5A:   NC3
+  H5B:   NC3
+  H5C:   NC3
+  C32:   NC3  P2AD
+  H1A:   NC3
+  H1B:   NC3
+  P31:   PO4  P0A CM
+  O33:   PO4  P1AA
+  O34:   PO4  P1AB
+  O31:   PO4  P1AC
+  O32:   PO4  P1AD
+  C3:    GL1  P3AA
+  HR:    GL1
+  HS:    GL1
+  C2:    GL1  P2AA
+  HX:    GL1
+  O21:   GL1  P1A
+  C21:   GL1  P2AB
+  O22:   GL1  P3BB
+  C1:    GL2  P2AA
+  HA:    GL2 
+  HB:    GL2 
+  O11:   GL2  P1A
+  C11:   GL2  P1B
+  O12:   GL2  P2BB

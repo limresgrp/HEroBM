@@ -1,0 +1,53 @@
+molecule: OL
+
+atoms:
+  C12:    C1A   P2AA
+  H2R:    C1A
+  H2S:    C1A
+  C13:    C1A   P1A
+  H3R:    C1A
+  H3S:    C1A
+  C14:    C1A   P1B
+  H4R:    C1A
+  H4S:    C1A
+  C15:    C1A   P2BB
+  H5R:    C1A
+  H5S:    C1A
+  C16:    D2A   P2AA
+  H6R:    D2A 
+  H6S:    D2A 
+  C17:    D2A   P1A
+  H7R:    D2A 
+  H7S:    D2A 
+  C18:    D2A   P1B
+  H8R:    D2A 
+  H8S:    D2A 
+  C19:    D2A   P2BB
+  H9R:    D2A 
+  C110:   C3A   P3AA
+  H10R:   C3A
+  C111:   C3A   P2AA
+  H11R:   C3A
+  H11S:   C3A
+  C112:   C3A   P1A
+  H12R:   C3A
+  H12S:   C3A
+  C113:   C3A   P2AB
+  H13R:   C3A
+  H13S:   C3A
+  C114:   C3A   P3BB
+  H14R:   C3A
+  H14S:   C3A
+  C115:   C4A   P2AA
+  H15R:   C4A
+  H15S:   C4A
+  C116:   C4A   P1A
+  H16R:   C4A
+  H16S:   C4A
+  C117:   C4A   P1B
+  H17R:   C4A
+  H17S:   C4A
+  C118:   C4A   P2BB
+  H18R:   C4A
+  H18S:   C4A
+  H18T:   C4A

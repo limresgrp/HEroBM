@@ -1,0 +1,24 @@
+molecule: TYR
+
+atoms:
+  N:   BB  P1AA
+  H:   BB
+  CA:  BB  P0A CM
+  HA:  BB
+  CB:  SC1 P1A
+  HB2: SC1
+  HB3: SC1
+  CG:  SC1 P1B
+  CD1: SC2 P1A
+  HD1: SC2
+  CE1: SC2 P1B
+  HE1: SC2
+  CZ:  SC4 P1A
+  OH:  SC4 P1B
+  HH:  SC4
+  CD2: SC3 P1A
+  HD2: SC3
+  CE2: SC3 P1B
+  HE2: SC3
+  C:   BB  P1AB
+  O:   BB  P2BA

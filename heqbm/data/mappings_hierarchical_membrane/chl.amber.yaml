@@ -1,0 +1,77 @@
+molecule: CHL
+
+atoms:
+  C1:   R1   P2AB
+  H11:  R1
+  H12:  R1
+  C2:   ROH  P1A
+  H21:  ROH
+  H22:  ROH
+  C3:   ROH  P2AA
+  H31:  ROH
+  C4:   ROH  P3BA
+  H41:  ROH
+  H42:  ROH
+  C5:   R1   P2AA
+  C6:   R2   P3AA
+  H61:  R2
+  C7:   R2   P2AA
+  H71:  R2
+  H72:  R2
+  C8:   R2   P1A
+  H81:  R2
+  C9:   R2   P2AB
+  H91:  R2
+  C10:  R1   P1A
+  C11:  R3   P1A
+  H111: R3
+  H112: R3
+  C12:  R3   P2AA
+  H121: R3
+  H122: R3
+  C13:  R3   P3AA
+  C14:  R4   P1A
+  H141: R4 
+  C15:  R4   P2AA
+  H151: R4
+  H152: R4
+  C16:  R4   P3AA
+  H161: R4
+  H162: R4
+  C17:  C1   P1A
+  H171: C1
+  C18:  R6   P0A 
+  H181: R6  
+  H182: R6
+  H183: R6
+  C19:  R5   P0A
+  H191: R5  
+  H192: R5
+  H193: R5
+  C20:  C1   P2AA
+  H201: C1
+  C21:  C1   P3AA
+  H211: C1
+  H212: C1
+  H213: C1
+  C22:  C2   P1A
+  H221: C2
+  H222: C2
+  C23:  C2   P2AA
+  H231: C2
+  H232: C2
+  C24:  C2   P3AA
+  H241: C2
+  H242: C2
+  C25:  C3   P1A
+  H251: C3
+  C26:  C3   P2AA
+  H261: C3
+  H262: C3
+  H263: C3
+  C27:  C3   P2AB
+  H271: C3
+  H272: C3
+  H273: C3
+  O1:   ROH  P3AA
+  HO1:  ROH 

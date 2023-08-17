@@ -1,0 +1,27 @@
+molecule: TRP
+
+atoms:
+  N:   BB   P1AA
+  HN:  BB
+  CA:  BB   P0A CM
+  HA:  BB
+  CB:  SC1  P1A
+  HB1: SC1
+  HB2: SC1
+  CG:  SC1  P1B
+  CD1: SC2  P1A
+  HD1: SC2
+  NE1: SC2  P1B
+  HE1: SC2
+  CE2: SC3  P1A
+  CD2: SC3  P1B
+  CE3: SC4  P1A
+  HE3: SC4
+  CZ3: SC4  P1B
+  HZ3: SC4
+  CZ2: SC5  P1A
+  HZ2: SC5
+  CH2: SC5  P1B
+  HH2: SC5
+  C:   BB   P1AB
+  O:   BB   P2BA
