@@ -139,7 +139,7 @@ class HierarchicalBackmapping:
             if k in backmapping_dataset:
                 backmapping_dataset[k] = backmapping_dataset[k][frame_index:frame_index+1]
         
-        if DataDict.BB_ATOM_POSITION not in backmapping_dataset or backmapping_dataset and backmapping_dataset[DataDict.BB_ATOM_POSITION].shape[1] == 0:
+        if DataDict.CA_BEAD_IDCS not in backmapping_dataset or (backmapping_dataset[DataDict.CA_BEAD_IDCS].sum() == 0):
             backmap_backbone = False
         
         # Adjust CG CA bead positions, if they don't pass structure quality checks
@@ -258,21 +258,22 @@ class HierarchicalBackmapping:
         os.makedirs(folder, exist_ok=True)
 
         # Write CG
-        bead_resindex = np.arange(len(backmapping_dataset[DataDict.BEAD_NAMES]))
-        CG_u = mda.Universe.empty(len(backmapping_dataset[DataDict.BEAD_POSITION][0]),
-                                n_residues=len(backmapping_dataset[DataDict.BEAD_NAMES]),
-                                atom_resindex=bead_resindex.tolist(),
-                                trajectory=True) # necessary for adding coordinates
-        CG_u.add_TopologyAttr('name', [bn.split('_')[1] for bn in backmapping_dataset[DataDict.BEAD_NAMES]])
-        CG_u.add_TopologyAttr('type', ['X' for an in backmapping_dataset[DataDict.BEAD_NAMES]])
-        CG_u.add_TopologyAttr('resname', [bn.split('_')[0] for bn in backmapping_dataset[DataDict.BEAD_NAMES]])
-        CG_u.add_TopologyAttr('resid', np.unique(bead_resindex))
-        CG_sel = CG_u.select_atoms('all')
-        CG_sel.positions = backmapping_dataset[DataDict.BEAD_POSITION][0]
-        CG_sel.write(os.path.join(folder, f"_CG_{frame_index}.pdb"))
+        sel.write(os.path.join(folder, f"original_CG_{frame_index}.pdb"))
 
         if self.config.get("simulation_is_cg", False):
-            sel.write(os.path.join(folder, f"original_CG_{frame_index}.pdb"))
+            bead_resindex = backmapping_dataset[DataDict.BEAD_RESIDCS]
+            CG_u = mda.Universe.empty(len(backmapping_dataset[DataDict.BEAD_POSITION][0]),
+                                    n_residues=len(np.unique(bead_resindex)),
+                                    atom_resindex=(bead_resindex-1).tolist(),
+                                    trajectory=True) # necessary for adding coordinates
+            CG_u.add_TopologyAttr('name', [bn.split('_')[1] for bn in backmapping_dataset[DataDict.BEAD_NAMES]])
+            CG_u.add_TopologyAttr('type', ['X' for an in backmapping_dataset[DataDict.BEAD_NAMES]])
+            CG_u.add_TopologyAttr('resname', [bn.split('_')[0] for bn in backmapping_dataset[DataDict.BEAD_NAMES][np.unique(bead_resindex, return_index=True)[1]]])
+            CG_u.add_TopologyAttr('resid', np.unique(bead_resindex))
+            CG_sel = CG_u.select_atoms('all')
+            CG_sel.positions = backmapping_dataset[DataDict.BEAD_POSITION][0]
+            CG_sel.write(os.path.join(folder, f"final_CG_{frame_index}.pdb"))
+            
             atom_resindex = []
             atomnames = []
             resnames = []
@@ -332,7 +333,7 @@ class HierarchicalBackmapping:
         except:
             pos[(sel.atoms.types != 'H') * (~np.array(['X' in n for n in sel.atoms.names]))] = backmapping_dataset[DataDict.ATOM_POSITION][0]
         sel.positions = pos
-        sel.write(os.path.join(folder, f"_true_{frame_index}.pdb"))
+        sel.write(os.path.join(folder, f"true_{frame_index}.pdb"))
 
         # Write predicted atomistic
         pos = copy.copy(sel.positions)
@@ -343,7 +344,7 @@ class HierarchicalBackmapping:
         except:
             pos[(sel.atoms.types != 'H') * (~np.array(['X' in n for n in sel.atoms.names]))] = positions_pred
         sel.positions = pos
-        sel.write(os.path.join(folder, f"_pred_{frame_index}.pdb"))
+        sel.write(os.path.join(folder, f"backmapped_{frame_index}.pdb"))
         return u
 
 def load_model(model_config: Dict, config: Dict):
