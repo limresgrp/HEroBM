@@ -258,19 +258,25 @@ class HierarchicalBackmapping:
         os.makedirs(folder, exist_ok=True)
 
         # Write CG
-        sel.write(os.path.join(folder, f"original_CG_{frame_index}.pdb"))
+        bead_resindex = backmapping_dataset[DataDict.BEAD_RESIDCS]
+        n_atoms = len(backmapping_dataset[DataDict.BEAD_POSITION][0])
+        n_residues = len(np.unique(bead_resindex))
+        atom_resindex = np.bincount(bead_resindex)
+        atom_resindex = atom_resindex[np.nonzero(atom_resindex)[0]]
+        atom_resindex = np.repeat(np.arange(n_residues), atom_resindex)
+        CG_u = mda.Universe.empty(n_atoms=n_atoms,
+                                n_residues=n_residues,
+                                atom_resindex=atom_resindex,
+                                trajectory=True) # necessary for adding coordinates
+        CG_u.add_TopologyAttr('name', [bn.split('_')[1] for bn in backmapping_dataset[DataDict.BEAD_NAMES]])
+        CG_u.add_TopologyAttr('type', ['X' for an in backmapping_dataset[DataDict.BEAD_NAMES]])
+        CG_u.add_TopologyAttr('resname', [bn.split('_')[0] for bn in backmapping_dataset[DataDict.BEAD_NAMES][np.unique(bead_resindex, return_index=True)[1]]])
+        CG_u.add_TopologyAttr('resid', np.unique(bead_resindex))
+        CG_sel = CG_u.select_atoms('all')
+        CG_sel.positions = backmapping_dataset[DataDict.BEAD_POSITION_ORIGINAL][0]
+        CG_sel.write(os.path.join(folder, f"original_CG_{frame_index}.pdb"))
 
         if self.config.get("simulation_is_cg", False):
-            bead_resindex = backmapping_dataset[DataDict.BEAD_RESIDCS]
-            CG_u = mda.Universe.empty(len(backmapping_dataset[DataDict.BEAD_POSITION][0]),
-                                    n_residues=len(np.unique(bead_resindex)),
-                                    atom_resindex=(bead_resindex-1).tolist(),
-                                    trajectory=True) # necessary for adding coordinates
-            CG_u.add_TopologyAttr('name', [bn.split('_')[1] for bn in backmapping_dataset[DataDict.BEAD_NAMES]])
-            CG_u.add_TopologyAttr('type', ['X' for an in backmapping_dataset[DataDict.BEAD_NAMES]])
-            CG_u.add_TopologyAttr('resname', [bn.split('_')[0] for bn in backmapping_dataset[DataDict.BEAD_NAMES][np.unique(bead_resindex, return_index=True)[1]]])
-            CG_u.add_TopologyAttr('resid', np.unique(bead_resindex))
-            CG_sel = CG_u.select_atoms('all')
             CG_sel.positions = backmapping_dataset[DataDict.BEAD_POSITION][0]
             CG_sel.write(os.path.join(folder, f"final_CG_{frame_index}.pdb"))
             

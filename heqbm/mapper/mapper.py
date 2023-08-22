@@ -422,6 +422,7 @@ class MartiniMapper():
         bead_names = []
         excluded_atoms = []
         atom_residcs = []
+        bead_residcs = []
 
         self.initialize_extra_map_impl()
 
@@ -448,6 +449,10 @@ class MartiniMapper():
                 for bead in beads:
                     if bead.is_newly_created:
                         bead_names.append(bead.name)
+                        try:
+                            bead_residcs.append(atom.resid + chainid2residoffset.get(atom.chainID, 0))
+                        except mda.exceptions.NoDataError:
+                            bead_residcs.append(atom.resid)
                     invalid_confs = self._update_bead(bead, atom_name, atom, _id)
                         
                     self._check_bead_completeness(bead)
@@ -503,6 +508,7 @@ class MartiniMapper():
         self._atom_names = np.array(atom_names)
         self._bead_names = np.array(bead_names)
         self._atom_residcs = np.array(atom_residcs)
+        self._bead_residcs = np.array(bead_residcs)
         self._bb_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3', 'N', 'C'] for an in self._atom_names])
         self._ca_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3'] for an in self._atom_names])
         self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB', 'RE'] for bn in self._bead_names])
