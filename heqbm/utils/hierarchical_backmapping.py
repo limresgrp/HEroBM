@@ -273,12 +273,13 @@ class HierarchicalBackmapping:
         CG_u.add_TopologyAttr('resname', [bn.split('_')[0] for bn in backmapping_dataset[DataDict.BEAD_NAMES][np.unique(bead_resindex, return_index=True)[1]]])
         CG_u.add_TopologyAttr('resid', np.unique(bead_resindex))
         CG_sel = CG_u.select_atoms('all')
-        CG_sel.positions = backmapping_dataset[DataDict.BEAD_POSITION_ORIGINAL][0]
+        CG_sel.positions = backmapping_dataset.get(DataDict.BEAD_POSITION_ORIGINAL, backmapping_dataset[DataDict.BEAD_POSITION])[0]
         CG_sel.write(os.path.join(folder, f"original_CG_{frame_index}.pdb"))
 
         if self.config.get("simulation_is_cg", False):
-            CG_sel.positions = backmapping_dataset[DataDict.BEAD_POSITION][0]
-            CG_sel.write(os.path.join(folder, f"final_CG_{frame_index}.pdb"))
+            if DataDict.BEAD_POSITION_ORIGINAL in backmapping_dataset:
+                CG_sel.positions = backmapping_dataset[DataDict.BEAD_POSITION][0]
+                CG_sel.write(os.path.join(folder, f"final_CG_{frame_index}.pdb"))
             
             atom_resindex = []
             atomnames = []
