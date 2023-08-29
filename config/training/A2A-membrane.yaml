@@ -1,11 +1,11 @@
 # general
-root: results/ligands
-run_name: zma
+root: results/A2A-membrane
+run_name: full-membrane
 seed: 0
 dataset_seed: 0
 append: true
 default_dtype: float32
-device: cuda
+device: cuda:3
 
 # -- network --
 model_builders:
@@ -13,7 +13,7 @@ model_builders:
   - heqbm.backmapping.model.HierarchicalReconstruction
 
 # cutoffs
-r_max: 7.0
+r_max: 20.0
 avg_num_neighbors: auto
 
 # radial basis
@@ -22,36 +22,36 @@ PolynomialCutoff_p: 18
 num_basis: 8
 
 # symmetry
-l_max: 3
+l_max: 2
 parity: o3_full
 
 # layers:
 num_layers: 2
-env_embed_multiplicity: 128
+env_embed_multiplicity: 64
 embed_initial_edge: true
 
-inv_out_irreps: "0x0e"    # Do NOT predict Phi and Psi, which are invariants, they are used only for BB optimization
-eq_out_irreps: 4x1o
+inv_out_irreps: "0x0e"
+eq_out_irreps: 6x1o
 readout_pre_pooling: true
 normalize_out_features: true
 
-env_embed_mlp_latent_dimensions: [512]
+env_embed_mlp_latent_dimensions: [256]
 env_embed_mlp_nonlinearity: null
 env_embed_mlp_initialization: uniform
 # env_embed_exp_function_normalization_constant: 1.
 
-two_body_latent_mlp_latent_dimensions: [128, 256, 512, 512]
+two_body_latent_mlp_latent_dimensions: [64, 128, 256, 256]
 two_body_latent_mlp_nonlinearity: silu
 two_body_latent_mlp_initialization: uniform
 # two_body_latent_exp_function_normalization_constant: 1.
 
-latent_mlp_latent_dimensions: [512, 512]
+latent_mlp_latent_dimensions: [256, 256]
 latent_mlp_nonlinearity: silu
 latent_mlp_initialization: uniform
 latent_resnet: true
 # latent_exp_function_normalization_constant: .5
 
-product_correlation: 3   # Maximum correlation order of tensor product expansion
+product_correlation: 2   # Maximum correlation order of tensor product expansion
 
 # - end layers -
 
@@ -66,7 +66,7 @@ normalize_edge_energy_sum: false
 directed_graph: true
 dataset_list:
   - dataset: folder_npz
-    dataset_file_name: /storage_common/angiod/LIGANDS/ZMA/backmapping/npz/train/
+    dataset_file_name: /storage_common/angiod/A2A/backmapping/npz/membrane/train/
     key_mapping:
       bead_types: bead_numbers
       bead_pos: pos
@@ -87,34 +87,45 @@ dataset_list:
     - atom_pos
 
 type_names:
-- ZMA_B8
-- ZMA_B1
-- ZMA_B3
-- ZMA_B10
-- ZMA_B11
-- ZMA_B9
-- ZMA_B2
-- ZMA_B6
-- ZMA_B5
-- ZMA_B7
-- ZMA_B4
+- CHL_R1
+- CHL_ROH
+- CHL_R2
+- CHL_R3
+- CHL_R4
+- CHL_C1
+- CHL_R6
+- CHL_R5
+- CHL_C2
+- CHL_C3
+- OL_C1A
+- OL_D2A
+- OL_C3A
+- OL_C4A
+- PA_C1B
+- PA_C2B
+- PA_C3B
+- PA_C4B
+- PC_NC3
+- PC_PO4
+- PC_GL1
+- PC_GL2
 
 # logging
 wandb: false
-wandb_project: heqbm-ligands-zma
+wandb_project: heqbm-a2a-membrane-full
 verbose: info
-log_batch_freq: 100
+log_batch_freq: 1
 
 # training
-n_train: [950]
-n_val: [50]
+n_train: [10]
+n_val: [5]
 batch_size: 1
 validation_batch_size: 1
 
-# Configure maximum batch sizes to avoid GPU memory errors. This parameters have to be configured according to your GPU RAM #
+# Configure maximum batch sizes to avoid GPU memory errors. This parameters have to be configured according to your GPU RAM and n #
 
-batch_max_edges: 100000             # Limit the maximum number of edges of a graph to be loaded on memory in a single batch
-batch_max_atoms: 1500               # Limit the maximum number of nodes of a graph to be loaded on memory in a single batch
+batch_max_edges: 40000              # Limit the maximum number of edges of a graph to be loaded on memory in a single batch
+batch_max_atoms: 1000               # Limit the maximum number of nodes of a graph to be loaded on memory in a single batch
 
 #############################################################################################################################
 
@@ -134,7 +145,8 @@ loss_coeffs:
   - atom_pos:              # Loss on reconstructed atoms RMSD
     - 1.
     - MSELoss
-    - ignore_pred_nan: true
+    - ignore_nan: true
+      ignore_pred_nan: true
   - atom_pos:              # Loss on bond and angle values of reconstructed atoms
     - 5.
     - InvMSELoss
@@ -153,6 +165,9 @@ optimizer_params:
   weight_decay: 0.
 
 metrics_components:
+  - - atom_pos
+    - mae
+    - ignore_nan: True
   - - eq_atom_features
     - mae
     - ignore_nan: True
