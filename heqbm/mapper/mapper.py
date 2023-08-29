@@ -11,6 +11,7 @@ import pandas as pd
 from pathlib import Path
 from typing import List, Optional
 from MDAnalysis.core.groups import Atom
+from ase.cell import Cell
 
 from .bead import BeadMappingSettings, BeadMappingAtomSettings, Bead, HierarchicalBead
 from heqbm.utils import DataDict
@@ -56,6 +57,8 @@ class MartiniMapper():
     _atom_residcs: np.ndarray = None
     _bead_residcs: np.ndarray = None
     _atom_forces: np.ndarray = None
+    _cell: np.ndarray = None
+    _pbc: np.ndarray = np.array([True, True, True])
 
     _constraints: set = None
     _phi_dihedral_idcs: np.ndarray = None
@@ -105,7 +108,7 @@ class MartiniMapper():
     
     @property
     def bead2atom_idcs_instance(self):
-        return self._bead2atom_idcs_instance
+        return np.ma.masked_array(self._bead2atom_idcs_instance, mask=~self.bead2atom_idcs_mask_instance)
     
     @property
     def bead2atom_idcs_mask_instance(self):
@@ -173,6 +176,8 @@ class MartiniMapper():
             DataDict.BB_PHIPSI: self._bb_phi_psi_values,
             DataDict.BOND_IDCS: self._bond_idcs,
             DataDict.ANGLE_IDCS: self._angle_idcs,
+            DataDict.CELL: self._cell,
+            DataDict.PBC: self._pbc,
         }.items() if v is not None}
 
     def __init__(self, root: Optional[str] = None) -> None:
@@ -211,6 +216,7 @@ class MartiniMapper():
         self._atom_names: np.ndarray = None
         self._bead_names: np.ndarray = None
         self._atom_forces: np.ndarray = None
+        self._cell: np.ndarray = None
 
         self._bond_idcs: np.ndarray = None
         self._angle_idcs: np.ndarray = None
@@ -293,22 +299,20 @@ class MartiniMapper():
     def _store_extra_mappings(self, bead_names):
         pass
     
-    def map(self, conf, selection = 'protein', frame_limit: int = np.inf):
+    def map(self, conf, selection = 'protein', frame_limit: Optional[int] = None):
         # New mapping, clear last records
         self._incomplete_beads.clear()
         self._complete_beads.clear()
         self._keep_hydrogens = conf.get("keep_hydrogens", False)
         self._max_bead_atoms = conf.get("max_bead_atoms", self._max_bead_atoms)
 
-        self.u = mda.Universe(conf.get("structure_filename"), *conf.get("traj_filenames", []))
-        if self.u.trajectory.n_frames > frame_limit:
-            return -1
+        self.u = mda.Universe(conf.get("structure_filename"), *conf.get("traj_filenames", []), **conf.get("extra_kwargs", {}))
         
         if conf.get("simulation_is_cg", False):
-            return self.map_impl_cg(selection=selection)
-        return self.map_impl(selection=selection)
+            return self.map_impl_cg(selection=selection, frame_limit=frame_limit)
+        return self.map_impl(selection=selection, frame_limit=frame_limit)
     
-    def map_impl_cg(self, selection):
+    def map_impl_cg(self, selection, frame_limit=None):
         sel = self.u.select_atoms(selection)
 
         self._bead_names = np.array([f"{resname}_{bead}" for resname, bead in zip(sel.resnames, sel.names)])
@@ -318,10 +322,13 @@ class MartiniMapper():
         ca_atom_positions = []
         ca_bead_positions = []
         ca_next_directions = []
+        cell_sizes = []
         
         try:
-            for ts in self.u.trajectory:
+            traj = self.u.trajectory if frame_limit is None else self.u.trajectory[:frame_limit]
+            for ts in traj:
                 bead_pos = sel.positions
+                cell_sizes.append(Cell.fromcellpar(ts.dimensions)[:])
                 bead_positions.append(bead_pos)
                 ca_atom_positions.append(bead_pos[self._ca_bead_idcs])
                 ca_bead_positions.append(bead_pos[self._ca_bead_idcs])
@@ -336,6 +343,7 @@ class MartiniMapper():
         self._ca_atom_positions = np.stack(ca_atom_positions, axis=0)
         self._ca_bead_positions = np.stack(ca_bead_positions, axis=0)
         self._ca_next_directions = np.stack(ca_next_directions, axis=0)
+        self._cell = np.stack(cell_sizes, axis=0)
 
         mapping_n = 0
 
@@ -412,7 +420,7 @@ class MartiniMapper():
 
         self.compute_dihedral_idcs()
             
-    def map_impl(self, selection):
+    def map_impl(self, selection, frame_limit=None):
         if not self._keep_hydrogens:
             selection = selection + ' and not (name H* or type OW)'
         sel = self.u.select_atoms(selection)
@@ -534,13 +542,18 @@ class MartiniMapper():
         ca_next_directions = []
         ca_bead_positions = []
         atom_forces = []
+        cell_sizes = []
 
         self.initialize_extra_pos_impl()
 
         read_forces = True
         try:
-            for ts in self.u.trajectory:
+            traj = self.u.trajectory if frame_limit is None else self.u.trajectory[:frame_limit]
+            for ts in traj:
                 pos = sel.positions
+                if ts.dimensions is not None:
+                    cell_sizes.append(Cell.fromcellpar(ts.dimensions)[:])
+                
                 atom_positions.append(pos)
                 if len(self._bb_atom_idcs) > 0:
                     bb_atom_positions.append(pos[self._bb_atom_idcs])
@@ -575,6 +588,7 @@ class MartiniMapper():
         self._ca_next_directions = np.stack(ca_next_directions, axis=0)
         self._bead_positions =  np.stack(bead_positions, axis=0)
         self._atom_forces = np.stack(atom_forces, axis=0) if len(atom_forces) > 0 else None
+        self._cell = np.stack(cell_sizes, axis=0) if len(cell_sizes) > 0 else np.zeros((3, 3), dtype=np.float32)
 
         self.store_extra_pos_impl()
 
@@ -766,9 +780,15 @@ class MartiniMapper():
             self._angle_idcs = df3.values
             angle_idcs_from_top = False
         if not self._keep_hydrogens:
+            bond_atoms_are_valid = np.zeros_like(self._bond_idcs, dtype=bool)
+            angle_atoms_are_valid = np.zeros_like(self._angle_idcs, dtype=bool)
             for _id, atom in enumerate(selection.atoms):
                 # Adjust atom indices to account for the absence of hydrogens
                 if bond_idcs_from_top:
-                    self._bond_idcs[self._bond_idcs == atom.id] = _id
+                    bond_atoms_are_valid[self._bond_idcs == atom.index] = True
+                    self._bond_idcs[self._bond_idcs == atom.index] = _id
                 if angle_idcs_from_top:
-                    self._angle_idcs[self._angle_idcs == atom.id] = _id
+                    angle_atoms_are_valid[self._angle_idcs == atom.index] = True
+                    self._angle_idcs[self._angle_idcs == atom.index] = _id
+            self._bond_idcs = self._bond_idcs[np.all(bond_atoms_are_valid, axis=1)]
+            self._angle_idcs = self._angle_idcs[np.all(angle_atoms_are_valid, axis=1)]

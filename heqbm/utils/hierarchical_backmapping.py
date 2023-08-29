@@ -394,6 +394,7 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
         AtomicDataDict.POSITIONS_KEY: bead_pos,
         f"{AtomicDataDict.POSITIONS_KEY}_slices": torch.tensor([0, len(bead_pos)]),
         AtomicDataDict.ATOM_TYPE_KEY: bead_types,
+        AtomicDataDict.ORIG_EDGE_INDEX_KEY: edge_index,
         AtomicDataDict.EDGE_INDEX_KEY: edge_index,
         AtomicDataDict.BATCH_KEY: batch,
         DataDict.BEAD2ATOM_IDCS: bead2atom_idcs,

@@ -39,6 +39,9 @@ BEAD_TYPES: Final[str] = "bead_types"
 ATOM_FORCES: Final[str] = "atom_forces"
 BEAD_FORCES: Final[str] = "bead_forces"
 
+CELL: Final[str] = "cell"
+PBC: Final[str] = "pbc"
+
 BEAD2ATOM_IDCS: Final[str] = "bead2atom_idcs"
 BEAD2ATOM_IDCS_MASK: Final[str] = "bead2atom_idcs_mask"
 
