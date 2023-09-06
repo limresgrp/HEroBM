@@ -57,9 +57,13 @@ class HierarchicalBackmapping:
 
         ### Load Model ###
 
-        self.model_config: Dict[str, str] = yaml.load(Path(self.config.get("model_config_file", None)).read_text(), Loader=yaml.Loader)
+        model_config_file = self.config.get("model_config_file", None)
+        model_config: Optional[Dict[str, str]] = yaml.load(
+            Path(model_config_file).read_text(), Loader=yaml.Loader
+        ) if model_config_file is not None else None
         self.model, training_model_config = load_model(
-            model_config=self.model_config,
+            model_dir=self.config.get("model_dir", None),
+            model_config=model_config,
             config=self.config,
         )
         self.model_r_max = float(training_model_config["r_max"])
@@ -299,6 +303,9 @@ class HierarchicalBackmapping:
                     resnames.append(resname)
                 atomnames.append(atomname)
                 atom_resindex.append(resid)
+            resnames = np.array(resnames)
+            atomnames = np.array(atomnames)
+            atom_resindex = np.array(atom_resindex)
 
             if atom_filter is None:
                 atom_filter = np.array([True for _ in atomnames])
@@ -318,8 +325,39 @@ class HierarchicalBackmapping:
                 backmapped_u.load_new(coordinates, order='fac')
             else:
                 backmapped_u = previous_u
-            backmapped_u.add_TopologyAttr('name', np.array(atomnames)[atom_filter].tolist())
-            backmapped_u.add_TopologyAttr('type', [get_type_from_name(an) for an in backmapping_dataset[DataDict.ATOM_NAMES][atom_filter]])
+            
+            residue_idcs_filter = []
+            for resindex, resname in zip(np.unique(atom_resindex), resnames):
+                residue_id_filter = np.argwhere(atom_resindex == resindex).flatten()
+                residue_atomnames = atomnames[residue_id_filter]
+                if 'C' in residue_atomnames \
+                and 'O' in residue_atomnames \
+                and resname in [
+                    'ALA', 'GLY',
+                    'ARG', 'ASN',
+                    'ASP', 'GLN',
+                    'GLU', 'HIE',
+                    'HID', 'HIS',
+                    'ILE', 'LEU',
+                    'LYS', 'MET',
+                    'SER', 'CYS',
+                    'TRP', 'TYR',
+                    'GLN', 'PHE',
+                    'PRO', 'THR',
+                    'VAL',
+                ]:
+                    C_id = np.argwhere(residue_atomnames == 'C').item()
+                    O_id = np.argwhere(residue_atomnames == 'O').item()
+                    C_index = residue_id_filter[C_id]
+                    O_index = residue_id_filter[O_id]
+                    residue_id_filter[C_id:-2] = residue_id_filter[O_id+1:]
+                    residue_id_filter[-2] = C_index
+                    residue_id_filter[-1] = O_index
+                residue_idcs_filter.append(residue_id_filter)
+            residue_idcs_filter = np.concatenate(residue_idcs_filter)
+
+            backmapped_u.add_TopologyAttr('name', atomnames[residue_idcs_filter][atom_filter].tolist())
+            backmapped_u.add_TopologyAttr('type', np.array([get_type_from_name(an) for an in backmapping_dataset[DataDict.ATOM_NAMES][atom_filter]])[residue_idcs_filter])
             backmapped_u.add_TopologyAttr('resname', resnames)
             backmapped_u.add_TopologyAttr('resid', np.unique(atom_resindex))
 
@@ -329,7 +367,7 @@ class HierarchicalBackmapping:
 
             positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter]
             positions_pred = np.nan_to_num(positions_pred, nan=0.)
-            backmapped_sel.positions = positions_pred
+            backmapped_sel.positions = positions_pred[residue_idcs_filter]
             backmapped_sel.write(os.path.join(folder, f"backmapped_{frame_index}.pdb"))
             return backmapped_u
         
@@ -354,17 +392,19 @@ class HierarchicalBackmapping:
         sel.write(os.path.join(folder, f"backmapped_{frame_index}.pdb"))
         return u
 
-def load_model(model_config: Dict, config: Dict):
-    train_dir = os.path.join(model_config.get("root"), model_config.get("run_name"))
+def load_model(config: Dict, model_dir: Optional[Path] = None, model_config: Optional[Dict] = None):
+    if model_dir is None:
+        assert model_config is not None, "You should provide either 'model_config_file' or 'model_dir' in the configuration file"
+        model_dir = os.path.join(model_config.get("root"), model_config.get("run_name"))
     model_name = config.get("model_relative_weights", "best_model.pth")
     
-    global_config = os.path.join(train_dir, "config.yaml")
+    global_config = os.path.join(model_dir, "config.yaml")
     global_config = Config.from_file(str(global_config), defaults={})
     _set_global_options(global_config)
     del global_config
 
     model, training_model_config = Trainer.load_model_from_training_session(
-        traindir=train_dir,
+        traindir=model_dir,
         model_name=model_name,
     )
 
@@ -402,6 +442,7 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
         DataDict.LEVEL_IDCS_MASK: lvl_idcs_mask,
         f"{DataDict.LEVEL_IDCS_MASK}_slices": torch.tensor([0, len(lvl_idcs_mask)]),
         DataDict.LEVEL_IDCS_ANCHOR_MASK: lvl_idcs_anchor_mask,
+        f"{DataDict.ATOM_POSITION}_slices": torch.tensor([0, bead2atom_idcs.max().item()+1])
     }
 
     with torch.no_grad():
@@ -511,12 +552,10 @@ def build_minimizer_data(dataset: Dict):
         if resid == next_resid - 1:
             bond_idcs.append([atom_id+1, atom_id+4])
             bond_eq_val.append(3.81) # CA - CA bond length ranges from 3.77 to 3.85
-            bond_tolerance.append(0.04)
+            bond_tolerance.append(0.05)
             ca_bond_idcs.append([atom_id+1, atom_id+4])
-            ca_bond_eq_val.append(3.81) # CA - CA bond length ranges from 3.77 to 3.85
-            ca_bond_tolerance.append(0.04)
-            # ca_bond_eq_val.append(3.85) # CA - CA bond length ranges from 3.77 to 3.85
-            # ca_bond_tolerance.append(0.15)
+            ca_bond_eq_val.append(3.81) # CA - CA bond length ranges from 3.78 to 3.83
+            ca_bond_tolerance.append(0.03)
 
             bond_idcs.append([atom_id+2, atom_id+3])
             bond_eq_val.append(1.34) # C - N bond length
