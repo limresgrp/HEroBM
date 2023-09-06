@@ -763,13 +763,17 @@ class MartiniMapper():
         try:
             self._bond_idcs = selection.intra_bonds.indices
         except:
-            x = selection.positions
-            y = x - x[:, None]
-            y = np.linalg.norm(y, axis=-1)
-            z = (y > 1.) * (y < 2.1)
-            z[np.tril_indices(len(z), k=-1)] = False
-            self._bond_idcs = np.stack(np.nonzero(z)).T
-            bond_idcs_from_top = False
+            try:
+                selection.guess_bonds()
+                self._bond_idcs = selection.intra_bonds.indices
+            except:
+                x = selection.positions
+                y = x - x[:, None]
+                y = np.linalg.norm(y, axis=-1)
+                z = (y > 1.) * (y < 2.1)
+                z[np.tril_indices(len(z), k=-1)] = False
+                self._bond_idcs = np.stack(np.nonzero(z)).T
+                bond_idcs_from_top = False
         try:
             self._angle_idcs = selection.intra_angles.indices
         except:
