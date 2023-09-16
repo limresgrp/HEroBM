@@ -1,5 +1,4 @@
 import os
-import copy
 import yaml
 import torch
 
@@ -10,13 +9,16 @@ from e3nn import o3
 from pathlib import Path
 from typing import Dict, Optional
 
-from heqbm.mapper.hierarchical_mapper import HierarchicalMartiniMapper
+from heqbm.mapper.hierarchical_mapper import HierarchicalMapper
 from heqbm.backmapping.nn.quaternions import get_quaternions, qv_mult
 from heqbm.utils import DataDict
 from heqbm.utils.atomType import get_type_from_name
 from heqbm.utils.geometry import get_RMSD, get_angles, get_dihedrals
 from heqbm.utils.backbone import cat_interleave, MinimizeEnergy
 from heqbm.utils.plotting import plot_cg
+from heqbm.utils.pdbFixer import fixPDB
+
+from openmm.app import PDBFile
 
 from heqbm.backmapping.allegro._keys import (
     INVARIANT_ATOM_FEATURES,
@@ -33,7 +35,7 @@ class HierarchicalBackmapping:
 
     config_filename: str
     config: Dict[str, str]
-    mapping: HierarchicalMartiniMapper
+    mapping: HierarchicalMapper
 
     model_config: Dict[str, str]
     model_r_max: float
@@ -52,7 +54,7 @@ class HierarchicalBackmapping:
 
         ### Parse Input ###
         
-        self.mapping = HierarchicalMartiniMapper(root=self.config.get("mapping_root", None))
+        self.mapping = HierarchicalMapper(root=self.config.get("mapping_root", None))
         self.mapping.map(self.config, selection=self.config.get("selection", "all"))
 
         ### Load Model ###
@@ -85,27 +87,26 @@ class HierarchicalBackmapping:
         backmapping_dataset[DataDict.ATOM_POSITION_PRED] = reconstructed_atom_pos
         return backmapping_dataset
     
-    def adjust_backbone(self, backmapping_dataset: Dict):
+    def adjust_beads(self, backmapping_dataset: Dict):
         backmapping_dataset[DataDict.BEAD_POSITION_ORIGINAL] = np.copy(backmapping_dataset[DataDict.BEAD_POSITION])
-
         minimizer_data = build_minimizer_data(dataset=backmapping_dataset)
 
-        can_modify_unlock_ca = not self.config.get("lock_ca", not self.config.get("simulation_is_cg", False))
-        self.minimizer.minimize(
-            data=minimizer_data,
-            dtau=self.config.get("bb_minimization_dtau", 1e-1),
-            eps=self.config.get("bb_minimization_eps_initial", 1e-2),
-            minimize_dih=False,
-            can_modify_unlock_ca=can_modify_unlock_ca,
-        )
+        unlock_ca = not self.config.get("lock_ca", not self.config.get("simulation_is_cg", False))
+        if unlock_ca:
+            self.minimizer.minimize(
+                data=minimizer_data,
+                dtau=self.config.get("bb_minimization_dtau", 1e-1),
+                eps=self.config.get("bb_minimization_eps_initial", 1e-2),
+                minimize_dih=False,
+                unlock_ca=True,
+            )
         
-        if can_modify_unlock_ca:
             ca_shifts = minimizer_data["pos"][1::3].detach().numpy() - backmapping_dataset[DataDict.BEAD_POSITION][0, backmapping_dataset[DataDict.CA_BEAD_IDCS]]
             residue_shifts = np.repeat(ca_shifts, minimizer_data["per_residue_beads"], axis=0)
             backmapping_dataset[DataDict.BEAD_POSITION][0] += residue_shifts
         return backmapping_dataset, minimizer_data
     
-    def backmap_backbone(self, backmapping_dataset: Dict, minimizer_data: Dict):
+    def optimize_backbone(self, backmapping_dataset: Dict, minimizer_data: Dict):
 
         # Add predicted dihedrals as dihedral equilibrium values
         minimizer_data = update_minimizer_data(
@@ -114,10 +115,18 @@ class HierarchicalBackmapping:
             use_only_bb_beads=self.config.get("bb_use_only_bb_beads", False),
         )
         
-        # Step 1 minimization: Rotate local minimum to find global minimum basin
+        # Step 1: initial minimization: Rotate local minimum to find global minimum basin
+        self.minimizer.minimize(
+            data=minimizer_data,
+            dtau=self.config.get("bb_minimization_dtau", 1e-1),
+            eps=self.config.get("bb_minimization_eps", 1e-2),
+            minimize_dih=False,
+        )
+
+        # Step 2: rotate N and C atoms around the CA-CA axis to find global minimum basin
         minimizer_data = self.rotate_dihedrals_to_minimize_energy(minimizer_data=minimizer_data, dataset=backmapping_dataset)
         
-        # Step 2 minimization: find global minimum
+        # Step 3: final minimization: find global minimum
         self.minimizer.minimize(
             data=minimizer_data,
             dtau=self.config.get("bb_minimization_dtau", 1e-1),
@@ -125,30 +134,29 @@ class HierarchicalBackmapping:
             minimize_dih=True,
         )
 
-        backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED] = minimizer_data["pos"].detach().numpy()
+        backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED] = minimizer_data["pos"][minimizer_data["real_bb_atom_idcs"]].detach().numpy()
         return backmapping_dataset, minimizer_data
         
-    def backmap(self, frame_index: int, backmap_backbone: bool = True):
+    def backmap(self, frame_index: int, optimize_backbone: bool = True):
         backmapping_dataset = self.mapping.dataset
         for k in [
             DataDict.ATOM_POSITION,
-            DataDict.BB_ATOM_POSITION,
-            DataDict.CA_ATOM_POSITION,
             DataDict.ATOM_FORCES,
             DataDict.BEAD_POSITION,
-            DataDict.CA_BEAD_POSITION,
+            DataDict.BB_ATOM_POSITION,
             DataDict.BB_PHIPSI,
+            DataDict.CA_ATOM_POSITION,
+            DataDict.CA_BEAD_POSITION,
             DataDict.BEAD2ATOM_RELATIVE_VECTORS,
         ]:
             if k in backmapping_dataset:
                 backmapping_dataset[k] = backmapping_dataset[k][frame_index:frame_index+1]
         
         if DataDict.CA_BEAD_IDCS not in backmapping_dataset or (backmapping_dataset[DataDict.CA_BEAD_IDCS].sum() == 0):
-            backmap_backbone = False
+            optimize_backbone = False
         
         # Adjust CG CA bead positions, if they don't pass structure quality checks
-        if backmap_backbone:
-            backmapping_dataset, minimizer_data = self.adjust_backbone(backmapping_dataset=backmapping_dataset)
+        backmapping_dataset, minimizer_data = self.adjust_beads(backmapping_dataset=backmapping_dataset)
 
         # Predict dihedrals and bead2atom relative vectors
         backmapping_dataset = run_backmapping_inference(
@@ -178,8 +186,8 @@ class HierarchicalBackmapping:
                 pass
 
         # Backmap backbone
-        if backmap_backbone:
-            backmapping_dataset, minimizer_data = self.backmap_backbone(backmapping_dataset=backmapping_dataset, minimizer_data=minimizer_data)
+        if optimize_backbone:
+            backmapping_dataset, minimizer_data = self.optimize_backbone(backmapping_dataset=backmapping_dataset, minimizer_data=minimizer_data)
         
         # Backmap side chains & ligands
         if DataDict.ATOM_POSITION_PRED not in backmapping_dataset:
@@ -192,12 +200,11 @@ class HierarchicalBackmapping:
             except:
                 pass
 
-        if backmap_backbone:
+        if optimize_backbone:
             n_atom_idcs = minimizer_data["n_atom_idcs"]
             ca_atom_idcs = backmapping_dataset[DataDict.CA_ATOM_IDCS]
             c_atom_idcs = minimizer_data["c_atom_idcs"]
-            backmapping_dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED][minimizer_data["real_bb_atom_idcs"]]
-            
+            backmapping_dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED]
             backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset)
         
         return backmapping_dataset
@@ -257,11 +264,10 @@ class HierarchicalBackmapping:
         ):
         u = mda.Universe(self.config.get("structure_filename"), *self.config.get("traj_filenames", []))
         u.trajectory[frame_index]
-        sel = u.select_atoms(selection)
 
         os.makedirs(folder, exist_ok=True)
 
-        # Write CG
+        # Write original CG
         bead_resindex = backmapping_dataset[DataDict.BEAD_RESIDCS]
         n_atoms = len(backmapping_dataset[DataDict.BEAD_POSITION][0])
         n_residues = len(np.unique(bead_resindex))
@@ -273,124 +279,108 @@ class HierarchicalBackmapping:
                                 atom_resindex=atom_resindex,
                                 trajectory=True) # necessary for adding coordinates
         CG_u.add_TopologyAttr('name', [bn.split('_')[1] for bn in backmapping_dataset[DataDict.BEAD_NAMES]])
-        CG_u.add_TopologyAttr('type', ['X' for an in backmapping_dataset[DataDict.BEAD_NAMES]])
+        CG_u.add_TopologyAttr('type', ['X' for _ in backmapping_dataset[DataDict.BEAD_CHAINIDCS]])
         CG_u.add_TopologyAttr('resname', [bn.split('_')[0] for bn in backmapping_dataset[DataDict.BEAD_NAMES][np.unique(bead_resindex, return_index=True)[1]]])
         CG_u.add_TopologyAttr('resid', np.unique(bead_resindex))
+        CG_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.BEAD_CHAINIDCS])
         CG_sel = CG_u.select_atoms('all')
         CG_sel.positions = backmapping_dataset.get(DataDict.BEAD_POSITION_ORIGINAL, backmapping_dataset[DataDict.BEAD_POSITION])[0]
         CG_sel.write(os.path.join(folder, f"original_CG_{frame_index}.pdb"))
 
-        if self.config.get("simulation_is_cg", False):
-            if DataDict.BEAD_POSITION_ORIGINAL in backmapping_dataset:
-                CG_sel.positions = backmapping_dataset[DataDict.BEAD_POSITION][0]
+        # Write optimized CG
+        if (DataDict.BEAD_POSITION_ORIGINAL in backmapping_dataset):
+            optimized_bead_position = backmapping_dataset[DataDict.BEAD_POSITION][0]
+            if np.any(~np.isclose(CG_sel.positions, optimized_bead_position)):
+                CG_sel.positions = optimized_bead_position
                 CG_sel.write(os.path.join(folder, f"final_CG_{frame_index}.pdb"))
-            
-            atom_resindex = []
-            atomnames = []
-            resnames = []
-            last_res_resname = None
-            last_res_atomname = None
-            resid = -1
-            for an in backmapping_dataset[DataDict.ATOM_NAMES]:
-                resname, atomname = an.split(DataDict.STR_SEPARATOR)
-                if resname != last_res_resname:
-                    resid += 1
-                    last_res_resname = resname
-                    last_res_atomname = atomname
-                    resnames.append(resname)
-                elif resname == last_res_resname and atomname == last_res_atomname:
-                    resid += 1
-                    resnames.append(resname)
-                atomnames.append(atomname)
-                atom_resindex.append(resid)
-            resnames = np.array(resnames)
-            atomnames = np.array(atomnames)
-            atom_resindex = np.array(atom_resindex)
-
-            if atom_filter is None:
-                atom_filter = np.array([True for _ in atomnames])
-            if previous_u is None:
-                n_atoms = len(backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter])
-                backmapped_u = mda.Universe.empty(
-                    n_atoms,
-                    n_residues=sel.n_residues,
-                    atom_resindex=np.array(atom_resindex)[atom_filter].tolist(),
-                    trajectory=True # necessary for adding coordinates
-                )
-                coordinates = np.empty((
-                    n_frames,  # number of frames
-                    n_atoms,
-                    3,
-                ))
-                backmapped_u.load_new(coordinates, order='fac')
-            else:
-                backmapped_u = previous_u
-            
-            residue_idcs_filter = []
-            for resindex, resname in zip(np.unique(atom_resindex), resnames):
-                residue_id_filter = np.argwhere(atom_resindex == resindex).flatten()
-                residue_atomnames = atomnames[residue_id_filter]
-                if 'C' in residue_atomnames \
-                and 'O' in residue_atomnames \
-                and resname in [
-                    'ALA', 'GLY',
-                    'ARG', 'ASN',
-                    'ASP', 'GLN',
-                    'GLU', 'HIE',
-                    'HID', 'HIS',
-                    'ILE', 'LEU',
-                    'LYS', 'MET',
-                    'SER', 'CYS',
-                    'TRP', 'TYR',
-                    'GLN', 'PHE',
-                    'PRO', 'THR',
-                    'VAL',
-                ]:
-                    C_id = np.argwhere(residue_atomnames == 'C').item()
-                    O_id = np.argwhere(residue_atomnames == 'O').item()
-                    C_index = residue_id_filter[C_id]
-                    O_index = residue_id_filter[O_id]
-                    residue_id_filter[C_id:-2] = residue_id_filter[O_id+1:]
-                    residue_id_filter[-2] = C_index
-                    residue_id_filter[-1] = O_index
-                residue_idcs_filter.append(residue_id_filter)
-            residue_idcs_filter = np.concatenate(residue_idcs_filter)
-
-            backmapped_u.add_TopologyAttr('name', atomnames[residue_idcs_filter][atom_filter].tolist())
-            backmapped_u.add_TopologyAttr('type', np.array([get_type_from_name(an) for an in backmapping_dataset[DataDict.ATOM_NAMES][atom_filter]])[residue_idcs_filter])
-            backmapped_u.add_TopologyAttr('resname', resnames)
-            backmapped_u.add_TopologyAttr('resid', np.unique(atom_resindex))
-
-            selection = 'all'
-            backmapped_u.trajectory[frame_index]
-            backmapped_sel = backmapped_u.select_atoms(selection)
-
-            positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter]
-            positions_pred = np.nan_to_num(positions_pred, nan=0.)
-            backmapped_sel.positions = positions_pred[residue_idcs_filter]
-            backmapped_sel.write(os.path.join(folder, f"backmapped_{frame_index}.pdb"))
-            return backmapped_u
         
-        # Write true atomistic
-        pos = copy.copy(sel.positions)
-        try:
-            pos[(sel.atoms.elements != 'H') * (~np.array(['X' in n for n in sel.atoms.names]))] = backmapping_dataset[DataDict.ATOM_POSITION][0]
-        except:
-            pos[(sel.atoms.types != 'H') * (~np.array(['X' in n for n in sel.atoms.names]))] = backmapping_dataset[DataDict.ATOM_POSITION][0]
-        sel.positions = pos
-        sel.write(os.path.join(folder, f"true_{frame_index}.pdb"))
+        # Write backmapped
+        atom_resindex = []
+        atomnames = []
+        resnames = []
+        last_res_resname = None
+        last_res_atomname = None
+        resid = -1
+        for an in backmapping_dataset[DataDict.ATOM_NAMES]:
+            resname, atomname = an.split(DataDict.STR_SEPARATOR)
+            if resname != last_res_resname:
+                resid += 1
+                last_res_resname = resname
+                last_res_atomname = atomname
+                resnames.append(resname)
+            elif resname == last_res_resname and atomname == last_res_atomname:
+                resid += 1
+                resnames.append(resname)
+            atomnames.append(atomname)
+            atom_resindex.append(resid)
+        resnames = np.array(resnames)
+        atomnames = np.array(atomnames)
+        atom_resindex = np.array(atom_resindex)
 
-        # Write predicted atomistic
-        pos = copy.copy(sel.positions)
-        positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0]
+        if atom_filter is None:
+            atom_filter = np.array([True for _ in atomnames])
+        if previous_u is None:
+            n_atoms = len(backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter])
+            n_residues = len(backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter])
+            backmapped_u = mda.Universe.empty(
+                n_atoms,
+                n_residues=len(np.unique(atom_resindex)),
+                atom_resindex=atom_resindex[atom_filter],
+                residue_segindex=np.unique(atom_resindex)+1,
+                trajectory=True # necessary for adding coordinates
+            )
+            coordinates = np.empty((
+                n_frames,  # number of frames
+                n_atoms,
+                3,
+            ))
+            backmapped_u.load_new(coordinates, order='fac')
+        else:
+            backmapped_u = previous_u
+        
+        residue_idcs_filter = []
+        for resindex, resname in zip(np.unique(atom_resindex), resnames):
+            residue_id_filter = np.argwhere(atom_resindex == resindex).flatten()
+            residue_atomnames = atomnames[residue_id_filter]
+            if 'C' in residue_atomnames \
+            and 'O' in residue_atomnames \
+            and resname in DataDict.RESNAMES:
+                C_id = np.argwhere(residue_atomnames == 'C').item()
+                O_id = np.argwhere(residue_atomnames == 'O').item()
+                C_index = residue_id_filter[C_id]
+                O_index = residue_id_filter[O_id]
+                residue_id_filter[C_id:-2] = residue_id_filter[O_id+1:]
+                residue_id_filter[-2] = C_index
+                residue_id_filter[-1] = O_index
+            residue_idcs_filter.append(residue_id_filter)
+        residue_idcs_filter = np.concatenate(residue_idcs_filter)
+
+        backmapped_u.add_TopologyAttr('name', atomnames[residue_idcs_filter][atom_filter].tolist())
+        backmapped_u.add_TopologyAttr('type', np.array([get_type_from_name(an) for an in backmapping_dataset[DataDict.ATOM_NAMES][atom_filter]])[residue_idcs_filter])
+        backmapped_u.add_TopologyAttr('resname', resnames)
+        backmapped_u.add_TopologyAttr('resid', np.unique(atom_resindex)+1)
+        backmapped_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.ATOM_CHAINIDCS])
+
+        backmapped_u.trajectory[frame_index]
+        backmapped_sel = backmapped_u.select_atoms(selection)
+
+        positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter]
         positions_pred = np.nan_to_num(positions_pred, nan=0.)
-        try:
-            pos[(sel.atoms.elements != 'H') * (~np.array(['X' in n for n in sel.atoms.names]))] = positions_pred
-        except:
-            pos[(sel.atoms.types != 'H') * (~np.array(['X' in n for n in sel.atoms.names]))] = positions_pred
-        sel.positions = pos
-        sel.write(os.path.join(folder, f"backmapped_{frame_index}.pdb"))
-        return u
+        backmapped_sel.positions = positions_pred[residue_idcs_filter]
+
+        backmapped_filename = os.path.join(folder, f"backmapped_{frame_index}.pdb") 
+        backmapped_sel.write(backmapped_filename)
+        topology, positions = fixPDB(backmapped_filename)
+        PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"backmapped_fixed_{frame_index}.pdb"), 'w'))
+
+        if not self.config.get("simulation_is_cg", False):
+            # Write true atomistic
+            sel = u.select_atoms(selection)
+            true_filename = os.path.join(folder, f"true_{frame_index}.pdb")
+            sel.write(true_filename)
+            topology, positions = fixPDB(true_filename)
+            PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"true_fixed_{frame_index}.pdb"), 'w'))
+        return backmapped_u
 
 def load_model(config: Dict, model_dir: Optional[Path] = None, model_config: Optional[Dict] = None):
     if model_dir is None:
@@ -462,69 +452,17 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
     return dataset
 
 def build_minimizer_data(dataset: Dict):
-    n_atom_idcs = np.array([an.split('_')[-1]=='N' for an in dataset[DataDict.ATOM_NAMES]])
-    c_atom_idcs = np.array([an.split('_')[-1]=='C' for an in dataset[DataDict.ATOM_NAMES]])
     unique_residcs = np.unique(dataset[DataDict.ATOM_RESIDCS])
-
-    residue_contains_n = []
-    residue_contains_c = []
-    for resid in unique_residcs:
-        residue_atom_names = [an.split('_')[-1] for an in dataset[DataDict.ATOM_NAMES][dataset[DataDict.ATOM_RESIDCS] == resid]]
-        residue_contains_n.append('N' in residue_atom_names)
-        residue_contains_c.append('C' in residue_atom_names)
-    residue_contains_n = np.array(residue_contains_n)
-    residue_contains_c = np.array(residue_contains_c)
-
     ca_pos = dataset[DataDict.CA_ATOM_POSITION][0]
-
-    n_vec = np.zeros_like(ca_pos)
-    n_vec[1:] = ca_pos[:-1] - ca_pos[1:]
-    n_vec[0] = n_vec[1]
-    n_vec = n_vec / np.linalg.norm(n_vec, axis=-1, keepdims=True) * 1.46 # CA - N bond length
-    n_pos_pred = ca_pos + n_vec
-
-    c_vec = np.zeros_like(ca_pos)
-    c_vec[:-1] = ca_pos[1:] - ca_pos[:-1]
-    c_vec[-1] = c_vec[-2]
-    c_vec = c_vec / np.linalg.norm(c_vec, axis=-1, keepdims=True) * 1.53 # CA - C bond length
-    c_pos_pred = ca_pos + c_vec
-
-    if DataDict.ATOM_POSITION in dataset:
-        c_pos = c_pos_pred.copy()
-        c_pos[residue_contains_c] = dataset[DataDict.ATOM_POSITION][0, c_atom_idcs]
-        n_pos = c_pos_pred.copy()
-        n_pos[residue_contains_n] = dataset[DataDict.ATOM_POSITION][0, n_atom_idcs]
-
-    ca_names = dataset[DataDict.ATOM_NAMES][dataset[DataDict.CA_ATOM_IDCS]]
-    c_names = np.array(['XXX_C'] * len(ca_names))
-    c_names[residue_contains_c] = dataset[DataDict.ATOM_NAMES][c_atom_idcs]
-    n_names = np.array(['XXX_N'] * len(ca_names))
-    n_names[residue_contains_n] = dataset[DataDict.ATOM_NAMES][n_atom_idcs]
+    n_dih = dataset[DataDict.CA_BEAD_IDCS].sum()
 
     atom_pos_pred = cat_interleave(
         [
-            n_pos_pred,
+            np.zeros_like(ca_pos),
             ca_pos,
-            c_pos_pred,
+            np.zeros_like(ca_pos),
         ],
     ).astype(np.float64)
-    atom_names = cat_interleave(
-        [
-            n_names,
-            ca_names,
-            c_names,
-        ],
-    )
-
-    real_bb_atom_idcs = cat_interleave(
-        [
-            residue_contains_n,
-            np.ones_like(residue_contains_n, dtype=bool),
-            residue_contains_c,
-        ],
-    )
-
-    n_dih = dataset[DataDict.CA_BEAD_IDCS].sum()
 
     bond_idcs = []
     bond_eq_val = []
@@ -601,7 +539,7 @@ def build_minimizer_data(dataset: Dict):
     angle_eq_val = np.array(angle_eq_val)
     angle_tolerance = np.array(angle_tolerance)
 
-    movable_pos_idcs = np.ones((len(atom_pos_pred),), dtype=bool)
+    movable_pos_idcs = np.ones((len(ca_pos) * 3,), dtype=bool)
     movable_pos_idcs[np.arange(n_dih) * 3 + 1] = False
 
     data = {
@@ -616,10 +554,6 @@ def build_minimizer_data(dataset: Dict):
         "angle_eq_val": torch.from_numpy(angle_eq_val),
         "angle_tolerance": torch.from_numpy(angle_tolerance),
         "movable_pos_idcs": torch.from_numpy(movable_pos_idcs),
-        "atom_names": atom_names,
-        "n_atom_idcs": n_atom_idcs,
-        "c_atom_idcs": c_atom_idcs,
-        "real_bb_atom_idcs": real_bb_atom_idcs,
     }
 
     if DataDict.BEAD_RESIDCS in dataset:
@@ -631,6 +565,58 @@ def build_minimizer_data(dataset: Dict):
     return data
 
 def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads: bool):
+    unique_residcs = np.unique(dataset[DataDict.ATOM_RESIDCS])
+    n_atom_idcs = np.array([an.split('_')[-1]=='N' for an in dataset[DataDict.ATOM_NAMES]])
+    ca_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3'] for an in dataset[DataDict.ATOM_NAMES]])
+    c_atom_idcs = np.array([an.split('_')[-1]=='C' for an in dataset[DataDict.ATOM_NAMES]])
+
+    residue_contains_n = []
+    residue_contains_c = []
+    for resid in unique_residcs:
+        residue_atom_names = [an.split('_')[-1] for an in dataset[DataDict.ATOM_NAMES][dataset[DataDict.ATOM_RESIDCS] == resid]]
+        residue_contains_n.append('N' in residue_atom_names)
+        residue_contains_c.append('C' in residue_atom_names)
+    residue_contains_n = np.array(residue_contains_n)
+    residue_contains_c = np.array(residue_contains_c)
+
+    ca_pos_pred = dataset[DataDict.ATOM_POSITION_PRED][0, ca_atom_idcs]
+    n_pos_pred = np.zeros_like(ca_pos_pred)
+    n_pos_pred[0] = 2*ca_pos_pred[0] - ca_pos_pred[1]
+    n_pos_pred[residue_contains_n] = dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs]
+    c_pos_pred = np.zeros_like(ca_pos_pred)
+    c_pos_pred[-1] = 2*ca_pos_pred[-1] - ca_pos_pred[-2]
+    c_pos_pred[residue_contains_c] = dataset[DataDict.ATOM_POSITION_PRED][0, c_atom_idcs]
+
+    ca_names = dataset[DataDict.ATOM_NAMES][dataset[DataDict.CA_ATOM_IDCS]]
+    n_names = np.array(['XXX_N'] * len(ca_names))
+    n_names[residue_contains_n] = dataset[DataDict.ATOM_NAMES][n_atom_idcs]
+    c_names = np.array(['XXX_C'] * len(ca_names))
+    c_names[residue_contains_c] = dataset[DataDict.ATOM_NAMES][c_atom_idcs]
+
+    atom_pos_pred = cat_interleave(
+        [
+            n_pos_pred,
+            ca_pos_pred,
+            c_pos_pred,
+        ],
+    ).astype(np.float64)
+
+    atom_names = cat_interleave(
+        [
+            n_names,
+            ca_names,
+            c_names,
+        ],
+    )
+
+    real_bb_atom_idcs = cat_interleave(
+        [
+            residue_contains_n,
+            np.ones_like(residue_contains_n, dtype=bool),
+            residue_contains_c,
+        ],
+    )
+
     dih = dataset[DataDict.BB_PHIPSI_PRED][0]
     if not use_only_bb_beads:
         dih = dih[dataset[DataDict.CA_BEAD_IDCS]]
@@ -650,8 +636,13 @@ def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads
     dih_eq_val = np.array(dih_eq_val)
 
     minimizer_data.update({
+        "pos": torch.from_numpy(atom_pos_pred),
         "dih_idcs": torch.from_numpy(dih_idcs),
         "dih_eq_val": torch.from_numpy(dih_eq_val),
+        "atom_names": atom_names,
+        "n_atom_idcs": n_atom_idcs,
+        "c_atom_idcs": c_atom_idcs,
+        "real_bb_atom_idcs": real_bb_atom_idcs,
     })
 
     return minimizer_data
@@ -739,7 +730,6 @@ def adjust_bb_oxygens(dataset: Dict):
     dataset[DataDict.ATOM_POSITION_PRED] = adjusted_pos.cpu().numpy()
 
     return dataset
-
 
 def adjust_oxygens(
         pos: torch.Tensor, # (batch, n_atoms, 3)

@@ -1,10 +1,10 @@
 from .bead import Bead
-from .mapper import MartiniMapper
-from .hierarchical_mapper import HierarchicalMartiniMapper
+from .mapper import Mapper
+from .hierarchical_mapper import HierarchicalMapper
 
 
 __all__ = [
     Bead,
-    MartiniMapper,
-    HierarchicalMartiniMapper,
+    Mapper,
+    HierarchicalMapper,
 ]

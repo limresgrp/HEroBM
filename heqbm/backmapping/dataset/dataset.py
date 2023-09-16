@@ -5,10 +5,10 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 from torch.utils.data import Dataset
 from heqbm.backmapping.dataset import Data
-from heqbm.mapper import MartiniMapper
+from heqbm.mapper import Mapper
 from heqbm.utils import DataDict
 
-def get_datasets_from_mapping(mapping: MartiniMapper, conf: Dict, shuffle: bool = False) -> Tuple[Dict[str, np.ndarray]]:
+def get_datasets_from_mapping(mapping: Mapper, conf: Dict, shuffle: bool = False) -> Tuple[Dict[str, np.ndarray]]:
     dataset: Dict = mapping.dataset
     
     n_frames = len(dataset[DataDict.ATOM_POSITION])

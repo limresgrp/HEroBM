@@ -1,10 +1,10 @@
 import numpy as np
 from typing import List, Optional
-from heqbm.mapper import MartiniMapper
+from heqbm.mapper import Mapper
 from heqbm.mapper.bead import Bead
 from heqbm.utils import DataDict
 
-class HierarchicalMartiniMapper(MartiniMapper):
+class HierarchicalMapper(Mapper):
 
     bead2atom_relative_vectors_list: List[np.ndarray]
 

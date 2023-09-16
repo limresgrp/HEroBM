@@ -28,11 +28,12 @@ BB_ATOM_POSITION_PRED: Final[str] = "bb_atom_position_pred"
 
 ATOM_NAMES: Final[str] = "atom_names"
 BEAD_NAMES: Final[str] = "bead_names"
-UNIQUE_BEAD_NAMES: Final[str] = "unique_bead_names"
 ATOM_RESIDCS: Final[str] = "atom_residcs"
 BEAD_RESIDCS: Final[str] = "bead_residcs"
 
 ATOM_TYPES: Final[str] = "atom_types"
+ATOM_CHAINIDCS: Final[str] = "atom_chain_idcs"
+BEAD_CHAINIDCS: Final[str] = "bead_chain_idcs"
 MAPPING_IDCS: Final[str] = "mapping_idcs"
 BEAD_TYPES: Final[str] = "bead_types"
 
@@ -46,7 +47,6 @@ BEAD2ATOM_IDCS: Final[str] = "bead2atom_idcs"
 BEAD2ATOM_IDCS_MASK: Final[str] = "bead2atom_idcs_mask"
 
 ORIGINAL_FRAMES_IDCS: Final[str] = "orig_frames_idcs"
-CONSTRAINTS: Final[str] = "constraints"
 
 DIHEDRAL_IDCS: Final[str] = "dihedral_idcs"
 PHI_DIH_IDCS: Final[str] = "phi_dih_idcs"

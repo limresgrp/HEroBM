@@ -204,7 +204,6 @@ class MinimizeEnergy(torch.nn.Module):
         dtau=None,
         eps: float = 1e-3,
         minimize_dih: bool = True,
-        can_modify_unlock_ca: bool = False,
         unlock_ca: bool = False
     ):
         if dtau is not None:
@@ -218,15 +217,7 @@ class MinimizeEnergy(torch.nn.Module):
                     print(f"{k}: {energy_evaluation.get(k, torch.tensor(torch.nan)).item()}")
                 current_total_energy = energy_evaluation.get("total_energy")
                 if last_total_energy - current_total_energy < eps:
-                    if can_modify_unlock_ca and not minimize_dih:
-                        bond_energy = self.evaluate_bond_energy(data, only_ca=unlock_ca)
-                        unlock_ca = bond_energy > 1e-2
-                        if unlock_ca:
-                            print("High energy on bond distances: allowing CA atoms to move.")
-                        else:
-                            break
-                    else:
-                        break
+                    break
                 last_total_energy = current_total_energy
 
 

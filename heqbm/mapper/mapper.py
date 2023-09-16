@@ -1,4 +1,5 @@
 import copy
+import re
 import os
 import sys
 import torch
@@ -18,9 +19,10 @@ from heqbm.utils import DataDict
 from heqbm.utils.backbone import Phi, Psi, Omega
 from heqbm.utils.atomType import get_type_from_name
 from heqbm.utils.geometry import get_dihedrals
+from heqbm.utils.pdbFixer import fixPDB
 
 
-class MartiniMapper():
+class Mapper():
 
     u: mda.Universe = None
 
@@ -57,10 +59,11 @@ class MartiniMapper():
     _atom_residcs: np.ndarray = None
     _bead_residcs: np.ndarray = None
     _atom_forces: np.ndarray = None
+    _atom_chainidcs: np.ndarray = None
+    _bead_chainidcs: np.ndarray = None
     _cell: np.ndarray = None
     _pbc: np.ndarray = np.array([True, True, True])
 
-    _constraints: set = None
     _phi_dihedral_idcs: np.ndarray = None
     _psi_dihedral_idcs: np.ndarray = None
     _omega_dihedral_idcs: np.ndarray = None
@@ -101,10 +104,6 @@ class MartiniMapper():
     @property
     def n_beads_instance(self):
         return len(self._bead_names)
-    
-    @property
-    def unique_bead_names(self):
-        return np.array(list(self._bead_types.keys()))
     
     @property
     def bead2atom_idcs_instance(self):
@@ -151,29 +150,34 @@ class MartiniMapper():
     def dataset(self):
         return {k: v for k, v in {
             DataDict.ATOM_POSITION: self._atom_positions,
+            DataDict.ATOM_NAMES: self._atom_names,
+            DataDict.ATOM_TYPES: self.atom_types_instance,
+            DataDict.ATOM_RESIDCS: self._atom_residcs,
+            DataDict.ATOM_CHAINIDCS: self._atom_chainidcs,
+            DataDict.ATOM_FORCES: self._atom_forces,
+
+            DataDict.BEAD_POSITION: self._bead_positions,
+            DataDict.BEAD_NAMES: self._bead_names,
+            DataDict.BEAD_TYPES: self.bead_types_instance,
+            DataDict.BEAD_RESIDCS: self._bead_residcs,
+            DataDict.BEAD_CHAINIDCS: self._bead_chainidcs,
+
+            DataDict.MAPPING_IDCS: self.mapping_idcs_instance,
+            DataDict.BEAD2ATOM_IDCS: self.bead2atom_idcs_instance,
+            DataDict.BEAD2ATOM_IDCS_MASK: self.bead2atom_idcs_mask_instance,
+
             DataDict.BB_ATOM_POSITION: self._bb_atom_positions,
+            DataDict.BB_PHIPSI: self._bb_phi_psi_values,
             DataDict.CA_ATOM_POSITION: self._ca_atom_positions,
             DataDict.CA_ATOM_IDCS: self._ca_atom_idcs,
             DataDict.CA_NEXT_DIRECTION: self._ca_next_directions,
-            DataDict.BEAD_POSITION: self._bead_positions,
             DataDict.CA_BEAD_POSITION: self._ca_bead_positions,
             DataDict.CA_BEAD_IDCS: self._ca_bead_idcs,
-            DataDict.ATOM_FORCES: self._atom_forces,
-            DataDict.ATOM_NAMES: self._atom_names,
-            DataDict.BEAD_NAMES: self._bead_names,
-            DataDict.ATOM_RESIDCS: self._atom_residcs,
-            DataDict.BEAD_RESIDCS: self._bead_residcs,
-            DataDict.MAPPING_IDCS: self.mapping_idcs_instance,
-            DataDict.ATOM_TYPES: self.atom_types_instance,
-            DataDict.CONSTRAINTS: self._constraints,
-            DataDict.BEAD_TYPES: self.bead_types_instance,
-            DataDict.UNIQUE_BEAD_NAMES: self.unique_bead_names,
-            DataDict.BEAD2ATOM_IDCS: self.bead2atom_idcs_instance,
-            DataDict.BEAD2ATOM_IDCS_MASK: self.bead2atom_idcs_mask_instance,
+            
             DataDict.PHI_DIH_IDCS: self._phi_dihedral_idcs,
             DataDict.PSI_DIH_IDCS: self._psi_dihedral_idcs,
             DataDict.OMEGA_DIH_IDCS: self._omega_dihedral_idcs,
-            DataDict.BB_PHIPSI: self._bb_phi_psi_values,
+            
             DataDict.BOND_IDCS: self._bond_idcs,
             DataDict.ANGLE_IDCS: self._angle_idcs,
             DataDict.CELL: self._cell,
@@ -186,7 +190,7 @@ class MartiniMapper():
         # Iterate configuration files and load all mappings
         self._clear_mappings()
         self._load_mappings()
-    
+
     def _clear_mappings(self):
         self._keep_hydrogens: bool = False
         self._valid_configurations_list: dict[str, list] = {}
@@ -216,7 +220,10 @@ class MartiniMapper():
         self._atom_names: np.ndarray = None
         self._bead_names: np.ndarray = None
         self._atom_forces: np.ndarray = None
+        self._atom_chainidcs: np.ndarray = None
+        self._bead_chainidcs: np.ndarray = None
         self._cell: np.ndarray = None
+        self._pbc: np.ndarray = np.array([True, True, True])
 
         self._bond_idcs: np.ndarray = None
         self._angle_idcs: np.ndarray = None
@@ -315,6 +322,11 @@ class MartiniMapper():
     def map_impl_cg(self, selection, frame_limit=None):
         sel = self.u.select_atoms(selection)
 
+        try:
+            self._bead_chainidcs = sel.chainIDs
+        except mda.exceptions.NoDataError:
+            self._bead_chainidcs = np.array(['A'] * sel.n_atoms)
+        
         self._bead_names = np.array([f"{resname}_{bead}" for resname, bead in zip(sel.resnames, sel.names)])
         self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB', 'RE'] for bn in self._bead_names])
 
@@ -350,15 +362,13 @@ class MartiniMapper():
         atom_names = []
         atom_residcs = []
         bead_residcs = []
+        atom_chainidcs = []
         bead2atom_idcs_instance = -np.ones((len(self._bead_names), self._max_bead_atoms), dtype=int)
 
         self.initialize_extra_map_impl_cg()
 
         # chainid2residoffset is used to adjust resid values  in pdbs with multiple chains, because the resid are repeated across chains
-        try:
-            chainid2residoffset = {chainid: i*sel.n_residues for i, chainid in enumerate(np.unique(sel.chainIDs))}
-        except mda.exceptions.NoDataError:
-            chainid2residoffset = {}
+        chainid2residoffset = {chainid: i*(self._bead_chainidcs == chainid).sum() for i, chainid in enumerate(np.unique(self._bead_chainidcs))}
 
         atom_index_offset = 0
         _id = 0
@@ -398,17 +408,14 @@ class MartiniMapper():
                     _id += 1
 
             bead2atom_idcs_instance[h, :len(bead_atom_names)] = np.array(_idcs)
-
-            try:
-                atom_residcs.extend([sel_bead.resid + chainid2residoffset.get(sel_bead.chainID, 0)] * len(new_bead_atom_names))
-                bead_residcs.append(sel_bead.resid + chainid2residoffset.get(sel_bead.chainID, 0))
-            except mda.exceptions.NoDataError:
-                atom_residcs.extend([sel_bead.resid] * len(new_bead_atom_names))
-                bead_residcs.append(sel_bead.resid)
+            atom_residcs.extend([sel_bead.resid + chainid2residoffset.get(self._bead_chainidcs[h], 0)] * len(new_bead_atom_names))
+            bead_residcs.append(sel_bead.resid + chainid2residoffset.get(self._bead_chainidcs[h], 0))
+            atom_chainidcs.extend([self._bead_chainidcs[h]] * len(new_bead_atom_names))
 
         self._atom_names = np.array(atom_names)
         self._atom_residcs = np.array(atom_residcs)
         self._bead_residcs = np.array(bead_residcs)
+        self._atom_chainidcs = np.array(atom_chainidcs)
         self._bead2atom_idcs_instance = np.array(bead2atom_idcs_instance)
         self._bb_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3', 'N', 'C'] for an in self._atom_names])
         self._ca_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3'] for an in self._atom_names])
@@ -422,8 +429,13 @@ class MartiniMapper():
             
     def map_impl(self, selection, frame_limit=None):
         if not self._keep_hydrogens:
-            selection = selection + ' and not (name H* or type OW)'
+            selection = selection + ' and not (element H)'
         sel = self.u.select_atoms(selection)
+
+        try:
+            temp_atom_chainidcs = sel.chainIDs
+        except mda.exceptions.NoDataError:
+            temp_atom_chainidcs = np.array(['A'] * sel.n_atoms)
 
         # Iterate elements in the system
         atom_names = []
@@ -431,23 +443,22 @@ class MartiniMapper():
         excluded_atoms = []
         atom_residcs = []
         bead_residcs = []
+        bead_chainidcs = []
 
         self.initialize_extra_map_impl()
 
-        constraints = set()
-        read_constraints = True
         _id = 0
-        # chainid2residoffset is used to adjust resid values in pdbs with multiple chains, because the resid are repeated across chains
         try:
-            chainid2residoffset = {chainid: i*sel.n_residues for i, chainid in enumerate(np.unique(sel.chainIDs))}
+            # chainid2residoffset is used to adjust resid values in pdbs with multiple chains, because the resid are repeated across chains
+            chainid2residoffset = {chainid: i*(temp_atom_chainidcs == chainid).sum() for i, chainid in enumerate(np.unique(temp_atom_chainidcs))}
         except mda.exceptions.NoDataError:
             chainid2residoffset = {}
 
-        for atom in sel.atoms:
+        for h, atom in enumerate(sel.atoms):
             try:
                 # Read atom properties
                 mol = atom.resname
-                atom_name = DataDict.STR_SEPARATOR.join([mol, atom.name])
+                atom_name = DataDict.STR_SEPARATOR.join([mol, re.sub(r'^(\d+)\s*(.+)', r'\2\1', atom.name)])
                 try:
                     beads = self._get_incomplete_bead_from_atom_name(atom_name)
                 except:
@@ -457,10 +468,8 @@ class MartiniMapper():
                 for bead in beads:
                     if bead.is_newly_created:
                         bead_names.append(bead.name)
-                        try:
-                            bead_residcs.append(atom.resid + chainid2residoffset.get(atom.chainID, 0))
-                        except mda.exceptions.NoDataError:
-                            bead_residcs.append(atom.resid)
+                        bead_residcs.append(atom.resid + chainid2residoffset.get(temp_atom_chainidcs[h], 0))
+                        bead_chainidcs.append(temp_atom_chainidcs[h])
                     invalid_confs = self._update_bead(bead, atom_name, atom, _id)
                         
                     self._check_bead_completeness(bead)
@@ -473,27 +482,8 @@ class MartiniMapper():
                 _id += 1
 
                 atom_names.append(atom_name)
-                try:
-                    atom_residcs.append(atom.resid + chainid2residoffset.get(atom.chainID, 0))
-                except mda.exceptions.NoDataError:
-                    atom_residcs.append(atom.resid)
-
-                # Read information on holonomic constraints
-                # Every X-H bond is considered holonomic
-                if read_constraints:
-                    try:
-                        if atom.element == 'H':
-                            constraints.update(frozenset(v) for v in atom.bonds.indices)
-                    except mda.exceptions.NoDataError:
-                        try:
-                            if atom.name[0] == 'H':
-                                constraints.update(frozenset(v) for v in atom.bonds.indices)
-                        except:
-                            read_constraints = False
-                            print("Missing information on Bonds")
-                    except:
-                        read_constraints = False
-                        print("Missing information on Bonds")
+                atom_residcs.append(atom.resid + chainid2residoffset.get(temp_atom_chainidcs[h], 0))
+                
             except AssertionError:
                 _, _, tb = sys.exc_info()
                 traceback.print_tb(tb) # Fixed format
@@ -517,16 +507,18 @@ class MartiniMapper():
         self._bead_names = np.array(bead_names)
         self._atom_residcs = np.array(atom_residcs)
         self._bead_residcs = np.array(bead_residcs)
+        self._bead_chainidcs = np.array(bead_chainidcs)
         self._bb_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3', 'N', 'C'] for an in self._atom_names])
         self._ca_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3'] for an in self._atom_names])
         self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB', 'RE'] for bn in self._bead_names])
 
-        if read_constraints:
-            self._constraints = constraints
-
         self.store_extra_map_impl()
 
         sel = self.u.select_atoms(selection)
+        try:
+            self._atom_chainidcs = sel.chainIDs
+        except mda.exceptions.NoDataError:
+            self._atom_chainidcs = np.array(['A'] * sel.n_atoms)
         self.compute_invariants(selection=sel)
         
         # Extract the indices of the atoms in the trajectory file for each bead
@@ -757,7 +749,6 @@ class MartiniMapper():
 
             self._bb_phi_psi_values = phipsi_val
     
-
     def compute_invariants(self, selection):
         bond_idcs_from_top, angle_idcs_from_top = True, True
         try:
