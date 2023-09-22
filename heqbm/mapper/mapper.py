@@ -704,7 +704,9 @@ class Mapper():
                             continue
                         dih(atom_name, resid, atom_index)
                         if dih.is_completed():
-                            idcs_list.append(dih.get_idcs())
+                            idcs = dih.get_idcs()
+                            if idcs is not None:
+                                idcs_list.append(idcs)
                             dih.lock()
 
         self._phi_dihedral_idcs = np.array(phi_dihedral_idcs, dtype=int)

@@ -5,15 +5,19 @@ from pdbfixer import PDBFixer
 from openmm import Vec3
 from openmm.app import Topology
 
-def fixPDB(filename: str) -> Tuple[Topology, List[Vec3]]:
+def fixPDB(filename: str, addMissingResidues: bool = False, addHydrogens: bool = True) -> Tuple[Topology, List[Vec3]]:
     fixer = PDBFixer(filename=filename)
-    fixer.findMissingResidues()
+    if addMissingResidues:
+        fixer.findMissingResidues()
+    else:
+        fixer.missingResidues = {}
     # fixer.findNonstandardResidues()
     # fixer.replaceNonstandardResidues()
-    fixer.removeHeterogens()
+    fixer.removeHeterogens(False)
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
-    fixer.addMissingHydrogens(7.0)
+    if addHydrogens:
+        fixer.addMissingHydrogens(7.0)
     # maxSize = max(max((pos[i] for pos in fixer.positions))-min((pos[i] for pos in fixer.positions)) for i in range(3))
     # boxSize = maxSize*Vec3(1, 1, 1)
     # fixer.addSolvent(boxSize)

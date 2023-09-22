@@ -10,4 +10,6 @@ def get_type_from_name(name: str) -> int:
         return 7
     if atom_name.startswith('O'):
         return 8
+    if atom_name.startswith('S'):
+        return 16
     return 0
