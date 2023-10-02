@@ -11,8 +11,8 @@ def fixPDB(filename: str, addMissingResidues: bool = False, addHydrogens: bool =
         fixer.findMissingResidues()
     else:
         fixer.missingResidues = {}
-    # fixer.findNonstandardResidues()
-    # fixer.replaceNonstandardResidues()
+    fixer.findNonstandardResidues()
+    fixer.replaceNonstandardResidues()
     fixer.removeHeterogens(False)
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()

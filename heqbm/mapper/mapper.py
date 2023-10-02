@@ -368,7 +368,12 @@ class Mapper():
         self.initialize_extra_map_impl_cg()
 
         # chainid2residoffset is used to adjust resid values  in pdbs with multiple chains, because the resid are repeated across chains
-        chainid2residoffset = {chainid: i*(self._bead_chainidcs == chainid).sum() for i, chainid in enumerate(np.unique(self._bead_chainidcs))}
+        resnums = sel.resnums
+        unique_chain_idcs = np.insert(np.unique(self._bead_chainidcs), 0, '')
+
+        chainid2residoffset = {}
+        for prev_chaid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
+                chainid2residoffset[chainid] = chainid2residoffset.get(prev_chaid, 0) + resnums[self._bead_chainidcs == prev_chaid].max(initial=0)
 
         atom_index_offset = 0
         _id = 0
@@ -448,11 +453,15 @@ class Mapper():
         self.initialize_extra_map_impl()
 
         _id = 0
+        chainid2residoffset = {}
         try:
+            resnums = sel.resnums
+            unique_chain_idcs = np.insert(np.unique(temp_atom_chainidcs), 0, '')
             # chainid2residoffset is used to adjust resid values in pdbs with multiple chains, because the resid are repeated across chains
-            chainid2residoffset = {chainid: i*(temp_atom_chainidcs == chainid).sum() for i, chainid in enumerate(np.unique(temp_atom_chainidcs))}
+            for prev_chaid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
+                chainid2residoffset[chainid] = chainid2residoffset.get(prev_chaid, 0) + resnums[temp_atom_chainidcs == prev_chaid].max(initial=0)
         except mda.exceptions.NoDataError:
-            chainid2residoffset = {}
+            pass
 
         for h, atom in enumerate(sel.atoms):
             try:

@@ -15,13 +15,13 @@ class Phi:
     
     def __call__(self, atom_name, resid, atom_index):
         self.completion += 1
-        if atom_name == 'C' and resid == self.prev_resid:
+        if atom_name == 'C' and resid == self.prev_resid and self.C_prev is None:
             self.C_prev = atom_index
-        elif atom_name == 'N' and resid == self.prev_resid+1:
+        elif atom_name == 'N' and resid == self.prev_resid+1 and self.N is None:
             self.N = atom_index
-        elif atom_name in ['CA', 'CH3'] and resid == self.prev_resid+1:
+        elif atom_name in ['CA', 'CH3'] and resid == self.prev_resid+1 and self.CA is None:
             self.CA = atom_index
-        elif atom_name == 'C' and resid == self.prev_resid+1:
+        elif atom_name == 'C' and resid == self.prev_resid+1 and self.C is None:
             self.C = atom_index
         else:
             self.completion -= 1
@@ -51,13 +51,13 @@ class Psi:
     
     def __call__(self, atom_name, resid, atom_index):
         self.completion += 1
-        if atom_name == 'N' and resid == self.resid:
+        if atom_name == 'N' and resid == self.resid and self.N is None:
             self.N = atom_index
-        elif atom_name in ['CA', 'CH3'] and resid == self.resid:
+        elif atom_name in ['CA', 'CH3'] and resid == self.resid and self.CA is None:
             self.CA = atom_index
-        elif atom_name == 'C' and resid == self.resid:
+        elif atom_name == 'C' and resid == self.resid and self.C is None:
             self.C = atom_index
-        elif atom_name == 'N' and resid == self.resid+1:
+        elif atom_name == 'N' and resid == self.resid+1 and self.N_next is None:
             self.N_next = atom_index
         else:
             self.completion -= 1
@@ -87,13 +87,13 @@ class Omega:
     
     def __call__(self, atom_name, resid, atom_index):
         self.completion += 1
-        if atom_name == 'O' and resid == self.resid:
+        if atom_name == 'O' and resid == self.resid and self.O is None:
             self.O = atom_index
-        elif atom_name == 'C' and resid == self.resid:
+        elif atom_name == 'C' and resid == self.resid and self.C is None:
             self.C = atom_index
-        elif atom_name == 'N' and resid == self.resid+1:
+        elif atom_name == 'N' and resid == self.resid+1 and self.N_next is None:
             self.N_next = atom_index
-        elif atom_name in ['CA', 'CH3'] and resid == self.resid+1:
+        elif atom_name in ['CA', 'CH3'] and resid == self.resid+1 and self.CA_next is None:
             self.CA_next = atom_index
         else:
             self.completion -= 1

@@ -190,8 +190,8 @@ class HierarchicalBackmapping:
             backmapping_dataset, minimizer_data = self.optimize_backbone(backmapping_dataset=backmapping_dataset, minimizer_data=minimizer_data)
         
         # Backmap side chains & ligands
-        if DataDict.ATOM_POSITION_PRED not in backmapping_dataset:
-            backmapping_dataset = self.backmap_scl(backmapping_dataset=backmapping_dataset)
+        # if DataDict.ATOM_POSITION_PRED not in backmapping_dataset:
+        #     backmapping_dataset = self.backmap_scl(backmapping_dataset=backmapping_dataset)
         
         if DataDict.ATOM_POSITION in backmapping_dataset:
             try:
