@@ -435,8 +435,11 @@ class Mapper():
     def map_impl(self, selection, frame_limit=None):
         if not self._keep_hydrogens:
             selection = selection + ' and not (element H)'
-        sel = self.u.select_atoms(selection)
-
+        try:
+            sel = self.u.select_atoms(selection)
+        except AttributeError:
+            selection = selection.replace('element', 'type')
+            sel = self.u.select_atoms(selection)
         try:
             temp_atom_chainidcs = sel.chainIDs
         except mda.exceptions.NoDataError:

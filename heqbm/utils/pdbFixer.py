@@ -5,7 +5,7 @@ from pdbfixer import PDBFixer
 from openmm import Vec3
 from openmm.app import Topology
 
-def fixPDB(filename: str, addMissingResidues: bool = False, addHydrogens: bool = True) -> Tuple[Topology, List[Vec3]]:
+def fixPDB(filename: str, addMissingResidues: bool = False, addHydrogens: bool = True, removeHeterogens: bool = False) -> Tuple[Topology, List[Vec3]]:
     fixer = PDBFixer(filename=filename)
     if addMissingResidues:
         fixer.findMissingResidues()
@@ -13,7 +13,8 @@ def fixPDB(filename: str, addMissingResidues: bool = False, addHydrogens: bool =
         fixer.missingResidues = {}
     fixer.findNonstandardResidues()
     fixer.replaceNonstandardResidues()
-    fixer.removeHeterogens(False)
+    if removeHeterogens:
+        fixer.removeHeterogens(False)
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
     if addHydrogens:

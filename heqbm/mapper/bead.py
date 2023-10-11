@@ -34,7 +34,7 @@ class BeadMappingAtomSettings:
 
             pattern = 'P(\d+)([A-Z])([A-Z])*'
             result = re.search(pattern, setting)
-            if result is not None :
+            if result is not None:
                 groups = result.groups()
                 assert len(groups) == 3
                 self.set_hierarchy_level(int(groups[0]))

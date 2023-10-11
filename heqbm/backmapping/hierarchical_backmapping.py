@@ -8,6 +8,7 @@ import MDAnalysis as mda
 from e3nn import o3
 from pathlib import Path
 from typing import Dict, Optional
+from itertools import groupby
 
 from heqbm.mapper.hierarchical_mapper import HierarchicalMapper
 from heqbm.backmapping.nn.quaternions import get_quaternions, qv_mult
@@ -87,11 +88,11 @@ class HierarchicalBackmapping:
         backmapping_dataset[DataDict.ATOM_POSITION_PRED] = reconstructed_atom_pos
         return backmapping_dataset
     
-    def adjust_beads(self, backmapping_dataset: Dict):
+    def adjust_beads(self, backmapping_dataset: Dict, device: str = 'cpu'):
         backmapping_dataset[DataDict.BEAD_POSITION_ORIGINAL] = np.copy(backmapping_dataset[DataDict.BEAD_POSITION])
-        minimizer_data = build_minimizer_data(dataset=backmapping_dataset)
+        minimizer_data = build_minimizer_data(dataset=backmapping_dataset, device=device)
 
-        unlock_ca = not self.config.get("lock_ca", not self.config.get("simulation_is_cg", False))
+        unlock_ca = backmapping_dataset[DataDict.CA_BEAD_POSITION].shape[-2] > 0 and (not self.config.get("lock_ca", not self.config.get("simulation_is_cg", False)))
         if unlock_ca:
             self.minimizer.minimize(
                 data=minimizer_data,
@@ -101,18 +102,19 @@ class HierarchicalBackmapping:
                 unlock_ca=True,
             )
         
-            ca_shifts = minimizer_data["pos"][1::3].detach().numpy() - backmapping_dataset[DataDict.BEAD_POSITION][0, backmapping_dataset[DataDict.CA_BEAD_IDCS]]
-            residue_shifts = np.repeat(ca_shifts, minimizer_data["per_residue_beads"], axis=0)
+            ca_shifts = minimizer_data["pos"][1::3].detach().cpu().numpy() - backmapping_dataset[DataDict.BEAD_POSITION][0, backmapping_dataset[DataDict.CA_BEAD_IDCS]]
+            residue_shifts = np.repeat(ca_shifts, minimizer_data["per_residue_beads"].cpu().numpy(), axis=0)
             backmapping_dataset[DataDict.BEAD_POSITION][0] += residue_shifts
         return backmapping_dataset, minimizer_data
     
-    def optimize_backbone(self, backmapping_dataset: Dict, minimizer_data: Dict):
+    def optimize_backbone(self, backmapping_dataset: Dict, minimizer_data: Dict, device: str = 'cpu'):
 
         # Add predicted dihedrals as dihedral equilibrium values
         minimizer_data = update_minimizer_data(
             minimizer_data=minimizer_data,
             dataset=backmapping_dataset,
             use_only_bb_beads=self.config.get("bb_use_only_bb_beads", False),
+            device=device,
         )
         
         # Step 1: initial minimization: Rotate local minimum to find global minimum basin
@@ -134,10 +136,10 @@ class HierarchicalBackmapping:
             minimize_dih=True,
         )
 
-        backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED] = minimizer_data["pos"][minimizer_data["real_bb_atom_idcs"]].detach().numpy()
+        backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED] = minimizer_data["pos"][minimizer_data["real_bb_atom_idcs"]].detach().cpu().numpy()
         return backmapping_dataset, minimizer_data
         
-    def backmap(self, frame_index: int, optimize_backbone: bool = True):
+    def backmap(self, frame_index: int, optimize_backbone: bool = True, device: str = 'cpu'):
         backmapping_dataset = self.mapping.dataset
         for k in [
             DataDict.ATOM_POSITION,
@@ -156,7 +158,8 @@ class HierarchicalBackmapping:
             optimize_backbone = False
         
         # Adjust CG CA bead positions, if they don't pass structure quality checks
-        backmapping_dataset, minimizer_data = self.adjust_beads(backmapping_dataset=backmapping_dataset)
+        device = next(self.model.parameters()).device
+        backmapping_dataset, minimizer_data = self.adjust_beads(backmapping_dataset=backmapping_dataset, device=device)
 
         # Predict dihedrals and bead2atom relative vectors
         backmapping_dataset = run_backmapping_inference(
@@ -164,6 +167,7 @@ class HierarchicalBackmapping:
             model=self.model,
             r_max=self.model_r_max,
             use_only_bb_beads=self.config.get("bb_use_only_bb_beads", False),
+            device=device,
         )
 
         if DataDict.BEAD2ATOM_RELATIVE_VECTORS in backmapping_dataset:
@@ -187,7 +191,11 @@ class HierarchicalBackmapping:
 
         # Backmap backbone
         if optimize_backbone:
-            backmapping_dataset, minimizer_data = self.optimize_backbone(backmapping_dataset=backmapping_dataset, minimizer_data=minimizer_data)
+            backmapping_dataset, minimizer_data = self.optimize_backbone(
+                backmapping_dataset=backmapping_dataset,
+                minimizer_data=minimizer_data,
+                device=device,
+            )
         
         # Backmap side chains & ligands
         # if DataDict.ATOM_POSITION_PRED not in backmapping_dataset:
@@ -201,9 +209,9 @@ class HierarchicalBackmapping:
                 pass
 
         if optimize_backbone:
-            n_atom_idcs = minimizer_data["n_atom_idcs"]
+            n_atom_idcs = minimizer_data["n_atom_idcs"].cpu().numpy()
             ca_atom_idcs = backmapping_dataset[DataDict.CA_ATOM_IDCS]
-            c_atom_idcs = minimizer_data["c_atom_idcs"]
+            c_atom_idcs = minimizer_data["c_atom_idcs"].cpu().numpy()
             backmapping_dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED]
             backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset)
         
@@ -211,7 +219,7 @@ class HierarchicalBackmapping:
     
     def rotate_dihedrals_to_minimize_energy(self, minimizer_data: Dict, dataset: Dict):
         pred_pos = minimizer_data["pos"].detach().clone()
-        ca_pos = torch.from_numpy(dataset[DataDict.CA_BEAD_POSITION][0])
+        ca_pos = torch.from_numpy(dataset[DataDict.CA_BEAD_POSITION][0]).to(pred_pos.device)
 
         pi_quarters_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi/4)
         pi_halves_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi/2)
@@ -242,7 +250,7 @@ class HierarchicalBackmapping:
                 temp_updated_pos[C_id] = rotated_pos[C_id]
                 temp_updated_pos[N_id] = rotated_pos[N_id]
                 energies.append(self.minimizer.evaluate_dihedral_energy(minimizer_data, pos=temp_updated_pos))
-            min_energy_id = np.argmin(np.array(energies))
+            min_energy_id = torch.stack(energies).argmin()
             best_energy = energies[min_energy_id]
             if best_energy < baseline_energy:
                 baseline_energy = best_energy
@@ -321,7 +329,6 @@ class HierarchicalBackmapping:
             atom_filter = np.array([True for _ in atomnames])
         if previous_u is None:
             n_atoms = len(backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter])
-            n_residues = len(backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter])
             backmapped_u = mda.Universe.empty(
                 n_atoms,
                 n_residues=len(np.unique(atom_resindex)),
@@ -362,7 +369,7 @@ class HierarchicalBackmapping:
         backmapped_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.ATOM_CHAINIDCS])
 
         backmapped_u.trajectory[frame_index]
-        backmapped_sel = backmapped_u.select_atoms(selection)
+        backmapped_sel = backmapped_u.select_atoms('all')
 
         positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter]
         positions_pred = np.nan_to_num(positions_pred, nan=0.)
@@ -380,6 +387,20 @@ class HierarchicalBackmapping:
             sel.write(true_filename)
             topology, positions = fixPDB(true_filename)
             PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"true_fixed_{frame_index}.pdb"), 'w'))
+
+        # # Write predicted atomistic
+        # import copy
+        # sel = u.select_atoms(selection)
+        # pos = copy.copy(sel.positions)
+        # positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0]
+        # positions_pred = np.nan_to_num(positions_pred, nan=0.)
+        # try:
+        #     pos[(sel.atoms.elements != 'H') * (~np.array(['X' in n for n in sel.atoms.names]))] = positions_pred
+        # except:
+        #     pos[(sel.atoms.types != 'H') * (~np.array(['X' in n for n in sel.atoms.names]))] = positions_pred
+        # sel.positions = pos
+        # sel.write(os.path.join(folder, f"backmapped_hydrogens_{frame_index}.pdb"))
+
         return backmapped_u
 
 def load_model(config: Dict, model_dir: Optional[Path] = None, model_config: Optional[Dict] = None):
@@ -405,9 +426,7 @@ def get_edge_index(positions: torch.Tensor, r_max: float):
     dist_matrix = torch.norm(positions[:, None, ...] - positions[None, ...], dim=-1).fill_diagonal_(torch.inf)
     return torch.argwhere(dist_matrix <= r_max).T.long()
 
-def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: float, use_only_bb_beads: bool):
-    device = next(model.parameters()).device
-
+def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: float, use_only_bb_beads: bool, device: str = 'cpu'):
     bead_pos = dataset[DataDict.BEAD_POSITION][0]
     bead_types = dataset[DataDict.BEAD_TYPES]
     if use_only_bb_beads:
@@ -451,8 +470,9 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
 
     return dataset
 
-def build_minimizer_data(dataset: Dict):
-    unique_residcs = np.unique(dataset[DataDict.ATOM_RESIDCS])
+def build_minimizer_data(dataset: Dict, device='cpu'):
+    unique_residcs = np.array([x[0] for x in groupby(dataset[DataDict.ATOM_RESIDCS])])
+    chainidcs = dataset[DataDict.BEAD_CHAINIDCS]
     ca_pos = dataset[DataDict.CA_ATOM_POSITION][0]
     n_dih = dataset[DataDict.CA_BEAD_IDCS].sum()
 
@@ -487,7 +507,7 @@ def build_minimizer_data(dataset: Dict):
         bond_eq_val.append(1.52) # CA - C bond length
         bond_tolerance.append(0.03)
         
-        if resid == next_resid - 1:
+        if resid == next_resid - 1 and chainidcs[id_] == chainidcs[id_+1]:
             bond_idcs.append([atom_id+1, atom_id+4])
             bond_eq_val.append(3.81) # CA - CA bond length ranges from 3.77 to 3.85
             bond_tolerance.append(0.05)
@@ -503,7 +523,7 @@ def build_minimizer_data(dataset: Dict):
         angle_eq_val.append(1.9216075) # N - CA - C angle value
         angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
         
-        if resid == next_resid - 1:
+        if resid == next_resid - 1 and chainidcs[id_] == chainidcs[id_+1]:
             angle_idcs.append([atom_id+1, atom_id+2, atom_id+3])
             angle_eq_val.append(2.0350539) # CA - C - N angle value
             angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
@@ -512,18 +532,19 @@ def build_minimizer_data(dataset: Dict):
             angle_eq_val.append(2.1275564) # C - N - CA angle value
             angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
     
-    atom_id = (id_ + 1) * 3 # N    
-    bond_idcs.append([atom_id, atom_id+1])
-    bond_eq_val.append(1.45) # N - CA bond length
-    bond_tolerance.append(0.03)
+    if n_dih > 0:
+        atom_id = (id_ + 1) * 3 # N    
+        bond_idcs.append([atom_id, atom_id+1])
+        bond_eq_val.append(1.45) # N - CA bond length
+        bond_tolerance.append(0.03)
 
-    bond_idcs.append([atom_id+1, atom_id+2])
-    bond_eq_val.append(1.52) # CA - C bond length
-    bond_tolerance.append(0.03)
+        bond_idcs.append([atom_id+1, atom_id+2])
+        bond_eq_val.append(1.52) # CA - C bond length
+        bond_tolerance.append(0.03)
 
-    angle_idcs.append([atom_id, atom_id+1, atom_id+2])
-    angle_eq_val.append(1.9216075) # N - CA - C angle value
-    angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
+        angle_idcs.append([atom_id, atom_id+1, atom_id+2])
+        angle_eq_val.append(1.9216075) # N - CA - C angle value
+        angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
     
     # ----------------------------- #
 
@@ -543,29 +564,32 @@ def build_minimizer_data(dataset: Dict):
     movable_pos_idcs[np.arange(n_dih) * 3 + 1] = False
 
     data = {
-        "pos": torch.from_numpy(atom_pos_pred),
-        "bond_idcs": torch.from_numpy(bond_idcs),
-        "bond_eq_val": torch.from_numpy(bond_eq_val),
-        "bond_tolerance": torch.from_numpy(bond_tolerance),
-        "ca_bond_idcs": torch.from_numpy(ca_bond_idcs),
-        "ca_bond_eq_val": torch.from_numpy(ca_bond_eq_val),
-        "ca_bond_tolerance": torch.from_numpy(ca_bond_tolerance),
-        "angle_idcs": torch.from_numpy(angle_idcs),
-        "angle_eq_val": torch.from_numpy(angle_eq_val),
-        "angle_tolerance": torch.from_numpy(angle_tolerance),
-        "movable_pos_idcs": torch.from_numpy(movable_pos_idcs),
+        "pos": atom_pos_pred,
+        "bond_idcs": bond_idcs,
+        "bond_eq_val": bond_eq_val,
+        "bond_tolerance": bond_tolerance,
+        "ca_bond_idcs": ca_bond_idcs,
+        "ca_bond_eq_val": ca_bond_eq_val,
+        "ca_bond_tolerance": ca_bond_tolerance,
+        "angle_idcs": angle_idcs,
+        "angle_eq_val": angle_eq_val,
+        "angle_tolerance": angle_tolerance,
+        "movable_pos_idcs": movable_pos_idcs,
     }
 
     if DataDict.BEAD_RESIDCS in dataset:
         per_residue_beads = np.bincount(dataset[DataDict.BEAD_RESIDCS] - dataset[DataDict.BEAD_RESIDCS].min())
         data.update({
-            "per_residue_beads": torch.from_numpy(per_residue_beads),
+            "per_residue_beads": per_residue_beads,
         })
+    
+    for k, v in data.items():
+        data[k] = torch.from_numpy(v).to(device)
     
     return data
 
-def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads: bool):
-    unique_residcs = np.unique(dataset[DataDict.ATOM_RESIDCS])
+def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads: bool, device: str = 'cpu'):
+    unique_residcs = np.array([x[0] for x in groupby(dataset[DataDict.ATOM_RESIDCS])])
     n_atom_idcs = np.array([an.split('_')[-1]=='N' for an in dataset[DataDict.ATOM_NAMES]])
     ca_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3'] for an in dataset[DataDict.ATOM_NAMES]])
     c_atom_idcs = np.array([an.split('_')[-1]=='C' for an in dataset[DataDict.ATOM_NAMES]])
@@ -620,39 +644,50 @@ def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads
     dih = dataset[DataDict.BB_PHIPSI_PRED][0]
     if not use_only_bb_beads:
         dih = dih[dataset[DataDict.CA_BEAD_IDCS]]
-
+    
     dih_idcs = []
     dih_eq_val = []
-    for id_, dih_val in zip(range(0, len(dih)-2), dih[1:-1]):
-        atom_id = id_ * 3 + 2 # start from C of first residue (N1 CA1 C1 N2 CA2 C2 ...) for the phi angle of second residue
-        dih_idcs.append([atom_id, atom_id+1, atom_id+2, atom_id+3])
-        dih_eq_val.append(dih_val[0])
-        atom_id = id_ * 3 + 3 # start from N of second residue (N1 CA1 C1 N2 CA2 C2 ...) for the psi angle of second residue
-        dih_idcs.append([atom_id, atom_id+1, atom_id+2, atom_id+3])
-        dih_eq_val.append(dih_val[1])
-        dih_idcs.append([atom_id+1, atom_id+2, atom_id+3, atom_id+4])
-        dih_eq_val.append(np.pi)
+    chainidcs = dataset[DataDict.BEAD_CHAINIDCS]
+    for id_, dih_val in zip(range(0, len(dih)), dih):
+        atom_id = id_ * 3 # start from N atom of id_ residue (N1 CA1 C1 N2 CA2 C2 ...)
+        if id_ > 0 and chainidcs[id_-1] == chainidcs[id_]:
+            # Phi
+            dih_idcs.append([atom_id-1, atom_id, atom_id+1, atom_id+2])
+            dih_eq_val.append(dih_val[0])
+        if id_ < len(dih)-1 and chainidcs[id_] == chainidcs[id_+1]:
+            # Psi
+            dih_idcs.append([atom_id, atom_id+1, atom_id+2, atom_id+3])
+            dih_eq_val.append(dih_val[1])
+            # Peptide bond
+            dih_idcs.append([atom_id+1, atom_id+2, atom_id+3, atom_id+4])
+            dih_eq_val.append(np.pi)
     dih_idcs = np.array(dih_idcs)
     dih_eq_val = np.array(dih_eq_val)
 
-    minimizer_data.update({
-        "pos": torch.from_numpy(atom_pos_pred),
-        "dih_idcs": torch.from_numpy(dih_idcs),
-        "dih_eq_val": torch.from_numpy(dih_eq_val),
+    data = {
+        "pos": atom_pos_pred,
+        "dih_idcs": dih_idcs,
+        "dih_eq_val": dih_eq_val,
         "atom_names": atom_names,
         "n_atom_idcs": n_atom_idcs,
         "c_atom_idcs": c_atom_idcs,
         "real_bb_atom_idcs": real_bb_atom_idcs,
-    })
+    }
+
+    for k, v in data.items():
+        if v.dtype.type is not np.str_:
+            data[k] = torch.from_numpy(v).to(device)
+    
+    minimizer_data.update(data)
 
     return minimizer_data
 
 def rotate_residue_dihedrals(pos: torch.TensorType, ca_pos: torch.TensorType, angle: float):
     rot_axes = ca_pos[1:] - ca_pos[:-1]
     rot_axes = rot_axes / torch.norm(rot_axes, dim=-1, keepdim=True)
-    rot_axes = rot_axes.repeat_interleave(2 * torch.ones((len(rot_axes),), dtype=int), dim=0)
+    rot_axes = rot_axes.repeat_interleave(2 * torch.ones((len(rot_axes),), dtype=int, device=rot_axes.device), dim=0)
 
-    angles_polar = 0.5 * angle * torch.ones((len(rot_axes),), dtype=float).reshape(-1, 1)
+    angles_polar = 0.5 * angle * torch.ones((len(rot_axes),), dtype=float, device=rot_axes.device).reshape(-1, 1)
 
     q_polar = get_quaternions(
         batch=1,
@@ -660,16 +695,16 @@ def rotate_residue_dihedrals(pos: torch.TensorType, ca_pos: torch.TensorType, an
         angles=angles_polar
     )
 
-    C_N_fltr = torch.zeros((len(pos),), dtype=bool)
+    C_N_fltr = torch.zeros((len(pos),), dtype=bool, device=rot_axes.device)
     for x in range(len(ca_pos)-1):
         C_N_fltr[x*3+2] = True
         C_N_fltr[x*3+3] = True
 
-    v_ = pos[C_N_fltr] - ca_pos[:-1].repeat_interleave(2 * torch.ones((len(ca_pos[:-1]),), dtype=int), dim=0)
+    v_ = pos[C_N_fltr] - ca_pos[:-1].repeat_interleave(2 * torch.ones((len(ca_pos[:-1]),), dtype=int, device=ca_pos.device), dim=0)
     v_rotated = qv_mult(q_polar, v_)
 
     rotated_pred_pos = pos.clone()
-    rotated_pred_pos[C_N_fltr] = ca_pos[:-1].repeat_interleave(2 * torch.ones((len(ca_pos[:-1]),), dtype=int), dim=0) + v_rotated
+    rotated_pred_pos[C_N_fltr] = ca_pos[:-1].repeat_interleave(2 * torch.ones((len(ca_pos[:-1]),), dtype=int, device=ca_pos.device), dim=0) + v_rotated
     return rotated_pred_pos
 
 def run_b2a_rel_vec_backmapping(dataset: Dict, use_predicted_b2a_rel_vec: bool = False):
