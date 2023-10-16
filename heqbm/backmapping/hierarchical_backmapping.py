@@ -61,15 +61,18 @@ class HierarchicalBackmapping:
         ### Load Model ###
 
         model_config_file = self.config.get("model_config_file", None)
-        model_config: Optional[Dict[str, str]] = yaml.load(
-            Path(model_config_file).read_text(), Loader=yaml.Loader
-        ) if model_config_file is not None else None
-        self.model, training_model_config = load_model(
-            model_dir=self.config.get("model_dir", None),
-            model_config=model_config,
-            config=self.config,
-        )
-        self.model_r_max = float(training_model_config["r_max"])
+        if model_config_file is not None:
+            model_config: Optional[Dict[str, str]] = yaml.load(
+                Path(model_config_file).read_text(), Loader=yaml.Loader
+            ) if model_config_file is not None else None
+            self.model, training_model_config = load_model(
+                model_dir=self.config.get("model_dir", None),
+                model_config=model_config,
+                config=self.config,
+            )
+            self.model_r_max = float(training_model_config["r_max"])
+        else:
+            print("Missing backmapping model")
 
         ### Initialize energy minimizer for reconstructing backbone ###
 
