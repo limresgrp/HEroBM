@@ -75,7 +75,7 @@ class HierarchicalMapper(Mapper):
         for i, bead in enumerate(self._ordered_beads):
             li = np.array(bead._local_index)
             li_prev = np.array(bead._local_index_prev)
-            anchor_idcs = np.array([np.argwhere(li == x).item() if len(np.argwhere(li == x)) == 1 else 0 for x in li_prev])
+            anchor_idcs = np.array([np.argwhere(li == x)[0].item() if len(np.argwhere(li == x)) >= 1 else 0 for x in li_prev])
             
             for level in range(0, self._max_bead_atoms + 1):
                 bead_local_filter = np.argwhere(np.array(bead._hierarchy_levels) == level)

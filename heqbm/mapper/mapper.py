@@ -26,7 +26,8 @@ class Mapper():
 
     u: mda.Universe = None
 
-    _keep_hydrogens: bool = True
+    _keep_hydrogens: bool = False
+    _weigth_based_on: str = 'mass'
     _valid_configurations_list: dict[str, list] = {}
     _valid_configurations: dict[str, np.ndarray] = {}
 
@@ -193,6 +194,7 @@ class Mapper():
 
     def _clear_mappings(self):
         self._keep_hydrogens: bool = False
+        self._weigth_based_on: str = 'mass'
         self._valid_configurations_list: dict[str, list] = {}
         self._valid_configurations: dict[str, np.ndarray] = {}
 
@@ -245,7 +247,7 @@ class Mapper():
             self._initialize_conf_extra_mappings()
 
             for atom, bead_settings_str in conf.get("atoms").items():
-                if self._keep_hydrogens and atom.startswith('H'):
+                if not self._keep_hydrogens and atom.startswith('H'):
                     continue
                 all_bead_settings = bead_settings_str.split()
                 bead_names = all_bead_settings[0].split(',')
@@ -261,11 +263,11 @@ class Mapper():
                     bms = self._bead_mapping_settings.get(bead_name, BeadMappingSettings(bead_name))
                     bmas = bms.get_bmas_by_atom_name(atom_name)
                     if bmas is None:
-                        bmas = BeadMappingAtomSettings(bead_settings, bead_name, atom_name)
+                        bmas = BeadMappingAtomSettings(bead_settings, bead_name, atom_name, num_shared_beads=len(bead_names))
                         bms.add_atom_settings(bmas)
                         self._bead_mapping_settings[bead_name] = bms
                     
-                    bead2atom = _conf_bead2atom.get(bead_name, [])
+                    bead2atom: List[str] = _conf_bead2atom.get(bead_name, [])
                     if len(bead2atom) == 0:
                         if bead_name not in self._bead_types:
                             self._bead_types[bead_name] = bead_type
@@ -273,6 +275,9 @@ class Mapper():
                     assert atom_name not in bead2atom, f"{atom_name} is already present in bead {bead_name}. Duplicate mapping"
                     bead2atom.append(atom_name)
                     _conf_bead2atom[bead_name] = bead2atom
+            
+            for bead_name, bms in self._bead_mapping_settings.items():
+                bms.update_relative_weights()
                 
             for bead_name, bead2atom in _conf_bead2atom.items():
                 _bead2atom = self._bead2atom.get(bead_name, [])
@@ -311,6 +316,7 @@ class Mapper():
         self._incomplete_beads.clear()
         self._complete_beads.clear()
         self._keep_hydrogens = conf.get("keep_hydrogens", False)
+        self._weigth_based_on = conf.get("weigth_based_on", "mass")
         self._max_bead_atoms = conf.get("max_bead_atoms", self._max_bead_atoms)
 
         self.u = mda.Universe(conf.get("structure_filename"), *conf.get("traj_filenames", []), **conf.get("extra_kwargs", {}))
@@ -340,7 +346,8 @@ class Mapper():
             traj = self.u.trajectory if frame_limit is None else self.u.trajectory[:frame_limit]
             for ts in traj:
                 bead_pos = sel.positions
-                cell_sizes.append(Cell.fromcellpar(ts.dimensions)[:])
+                if ts.dimensions is not None:
+                    cell_sizes.append(Cell.fromcellpar(ts.dimensions)[:])
                 bead_positions.append(bead_pos)
                 ca_atom_positions.append(bead_pos[self._ca_bead_idcs])
                 ca_bead_positions.append(bead_pos[self._ca_bead_idcs])
@@ -355,7 +362,7 @@ class Mapper():
         self._ca_atom_positions = np.stack(ca_atom_positions, axis=0)
         self._ca_bead_positions = np.stack(ca_bead_positions, axis=0)
         self._ca_next_directions = np.stack(ca_next_directions, axis=0)
-        self._cell = np.stack(cell_sizes, axis=0)
+        self._cell = np.stack(cell_sizes, axis=0) if len(cell_sizes) > 0 else np.zeros((3, 3), dtype=np.float32)
 
         mapping_n = 0
 
@@ -648,7 +655,13 @@ class Mapper():
         return bead.update(atom_name, atom, _id, bmas)
     
     def _create_bead(self, bead_name: str):
-        bead = HierarchicalBead(name=bead_name, type=self._bead_types[bead_name], atoms=copy.deepcopy(self._bead2atom[bead_name]), keep_hydrogens=self._keep_hydrogens)
+        bead = HierarchicalBead(
+            name=bead_name,
+            type=self._bead_types[bead_name],
+            atoms=copy.deepcopy(self._bead2atom[bead_name]),
+            weigth_based_on=self._weigth_based_on,
+            keep_hydrogens=self._keep_hydrogens,
+        )
         self._incomplete_beads.append(bead)
         self._ordered_beads.append(bead)
         return bead
@@ -673,10 +686,6 @@ class Mapper():
             b2a_idcs =  np.array(bead._atom_idcs)
             self._bead2atom_idcs_instance[i, :bead.n_atoms] = b2a_idcs
             weights = np.array(bead._atom_weights)
-            atom_shared_by = []
-            for an in self._atom_names[b2a_idcs]:
-                atom_shared_by.append(len(self._atom2bead[an]))
-            weights = weights / np.array(atom_shared_by)
             self._weights_instance[i, :bead.n_atoms] = weights / weights.sum()
     
     def compute_dihedral_idcs(self, selection = None):

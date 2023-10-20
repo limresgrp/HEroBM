@@ -11,12 +11,14 @@ UNSET_V_VALUE = -1
 
 class BeadMappingAtomSettings:
 
-    def __init__(self, bead_settings, bead_name, atom_name) -> None:
+    def __init__(self, bead_settings, bead_name, atom_name, num_shared_beads: int) -> None:
         self.bead_name = bead_name
         self.atom_name = atom_name
 
         self.bead_name: str
         self.atom_name: str
+
+        self._num_shared_beads: int = num_shared_beads
 
         self._is_cm: bool = False
         self._has_cm: bool = False
@@ -28,12 +30,16 @@ class BeadMappingAtomSettings:
         self._local_index: int = -1
         self._local_index_prev: int = -1
 
+        self._relative_weight: float = 1.
+        self._relative_weight_set: bool = False
+
         for setting in bead_settings:
             if setting == "CM":
                 self.set_is_cm()
+                continue
 
-            pattern = 'P(\d+)([A-Z])([A-Z])*'
-            result = re.search(pattern, setting)
+            hierarchy_pattern = 'P(\d+)([A-Z])([A-Z])*'
+            result = re.search(hierarchy_pattern, setting)
             if result is not None:
                 groups = result.groups()
                 assert len(groups) == 3
@@ -43,6 +49,26 @@ class BeadMappingAtomSettings:
                 else:
                     self.set_hierarchy_previous_name(groups[1])
                     self.set_hierarchy_name(groups[2])
+                continue
+            
+            weight_pattern = '(\d)/(\d)'
+            result = re.search(weight_pattern, setting)
+            if result is not None:
+                groups = result.groups()
+                assert len(groups) == 2
+                self.set_relative_weight(float(int(groups[0])/int(groups[1])))
+                continue
+
+            weight_pattern = '(\d*(?:\.\d+)?)'
+            result = re.search(weight_pattern, setting)
+            if result is not None:
+                groups = result.groups()
+                assert len(groups) == 1
+                self.set_relative_weight(float(groups[0]))
+                continue
+        
+        if not self._relative_weight_set:
+            self.set_relative_weight(self.relative_weight / self._num_shared_beads)
 
     @property
     def is_cm(self):
@@ -68,6 +94,10 @@ class BeadMappingAtomSettings:
             return 0
         return ord(self._hierarchy_previous_name) - ord('A')
     
+    @property
+    def relative_weight(self):
+        return self._relative_weight
+    
     def set_is_cm(self, is_cm: bool = True):
         self._is_cm = is_cm
         self.set_has_cm(is_cm)
@@ -89,12 +119,17 @@ class BeadMappingAtomSettings:
     
     def set_local_index_prev(self, local_index_prev: int):
         self._local_index_prev = local_index_prev
+    
+    def set_relative_weight(self, weight: float):
+        self._relative_weight_set = True
+        self._relative_weight = weight
 
 
 class BeadMappingSettings:
 
-    def __init__(self, bead_name) -> None:
+    def __init__(self, bead_name, num_shared_beads: int = 1) -> None:
         self._bead_name = bead_name
+        self._num_shared_beads = num_shared_beads
 
         self._bead_name: str
         self._atom_settings: List[BeadMappingAtomSettings] = []
@@ -117,6 +152,12 @@ class BeadMappingSettings:
                 has_cm = True
             if has_cm:    
                 saved_bmas.set_has_cm()
+    
+    def update_relative_weights(self):
+        total_relative_weight = sum([_as.relative_weight for _as in self._atom_settings])
+        for bmas in self._atom_settings:
+            bmas.set_relative_weight(bmas.relative_weight / total_relative_weight)
+
     
     def get_ordered_bmas(self):
         return sorted(
@@ -170,12 +211,14 @@ class Bead:
             name: str,
             type: int,
             atoms: List[str],
-            keep_hydrogens: bool,
+            weigth_based_on: str,
+            keep_hydrogens: bool = False,
     ) -> None:
         self.name = name
         self.type = type
         self._is_complete: bool = False
         self._is_newly_created: bool = True
+        self.weigth_based_on = weigth_based_on
         self.keep_hydrogens = keep_hydrogens
         
         self._missing_atoms_list: List[List[str]] = atoms
@@ -200,13 +243,18 @@ class Bead:
         self._atom_names.append(atom_name)
         self._atoms.append(atom)
         self._atom_idcs.append(_id)
+        weight = 0.
         if bmas.has_cm:
-            self._atom_weights.append(1. if bmas.is_cm else 0.)
-        else:
-            if get_type_from_name(atom_name) != 1:
-                self._atom_weights.append(atom.mass if isinstance(atom, Atom) else 0.)
+            weight = 1. * bmas.is_cm
+        elif isinstance(atom, Atom):
+            if self.weigth_based_on == "mass":
+                weight = atom.mass
+            elif self.weigth_based_on == "same":
+                weight = 1.
             else:
-                self._atom_weights.append(0.)
+                raise Exception(f"{self.weigth_based_on} is not a valid value for 'weigth_based_on'. Use either 'mass' or 'same'")
+        weight *= bmas.relative_weight
+        self._atom_weights.append(weight)
         
         self._hierarchy_levels.append(bmas.hierarchy_level)
         self._local_index.append(bmas._local_index)
@@ -279,5 +327,18 @@ class RBBead(Bead):
 
 class HierarchicalBead(Bead):
 
-    def __init__(self, name: str, type: int, atoms: List[str], keep_hydrogens: bool) -> None:
-        super().__init__(name, type, atoms, keep_hydrogens)
+    def __init__(
+            self,
+            name: str,
+            type: int,
+            atoms: List[str],
+            weigth_based_on: str,
+            keep_hydrogens: bool
+    ) -> None:
+        super().__init__(
+            name=name,
+            type=type,
+            atoms=atoms,
+            weigth_based_on=weigth_based_on,
+            keep_hydrogens=keep_hydrogens
+        )

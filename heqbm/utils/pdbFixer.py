@@ -3,10 +3,18 @@ import glob
 from typing import List, Tuple
 from pdbfixer import PDBFixer
 from openmm import Vec3
-from openmm.app import Topology
+from openmm.app import Topology, ForceField
 
-def fixPDB(filename: str, addMissingResidues: bool = False, addHydrogens: bool = True, removeHeterogens: bool = False) -> Tuple[Topology, List[Vec3]]:
+def fixPDB(
+        filename: str,
+        ff: List[str]  = ['amber14-all.xml'],
+        addMissingResidues: bool = False,
+        addHydrogens: bool = True,
+        removeHeterogens: bool = False
+    ) -> Tuple[Topology, List[Vec3]]:
     fixer = PDBFixer(filename=filename)
+    forcefield = ForceField(*ff)
+    # forcefield = fixer._createForceField(fixer.topology, False)
     if addMissingResidues:
         fixer.findMissingResidues()
     else:
@@ -18,7 +26,7 @@ def fixPDB(filename: str, addMissingResidues: bool = False, addHydrogens: bool =
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
     if addHydrogens:
-        fixer.addMissingHydrogens(7.0)
+        fixer.addMissingHydrogens(7.0, forcefield=forcefield)
     # maxSize = max(max((pos[i] for pos in fixer.positions))-min((pos[i] for pos in fixer.positions)) for i in range(3))
     # boxSize = maxSize*Vec3(1, 1, 1)
     # fixer.addSolvent(boxSize)
