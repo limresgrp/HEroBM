@@ -4,6 +4,7 @@ import torch
 
 import numpy as np
 import MDAnalysis as mda
+import copy
 
 from e3nn import o3
 from pathlib import Path
@@ -174,7 +175,7 @@ class HierarchicalBackmapping:
         )
 
         if DataDict.BEAD2ATOM_RELATIVE_VECTORS in backmapping_dataset:
-            bb_fltr = np.array([x.split('_')[1] in ['BB', 'RE'] for x in backmapping_dataset[DataDict.BEAD_NAMES]])
+            bb_fltr = np.array([x.split('_')[1] in ['BB'] for x in backmapping_dataset[DataDict.BEAD_NAMES]])
             b2a_rev_vec = backmapping_dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS][0].copy()
 
             try:
@@ -430,18 +431,22 @@ def get_edge_index(positions: torch.Tensor, r_max: float):
     return torch.argwhere(dist_matrix <= r_max).T.long()
 
 def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: float, use_only_bb_beads: bool, device: str = 'cpu'):
+    batch_max_edges = 30000
+    batch_max_atoms = 1000
+    max_atoms_correction_step = 50
+
     bead_pos = dataset[DataDict.BEAD_POSITION][0]
     bead_types = dataset[DataDict.BEAD_TYPES]
     if use_only_bb_beads:
         bead_pos = bead_pos[dataset[DataDict.CA_BEAD_IDCS]]
         bead_types = bead_types[dataset[DataDict.CA_BEAD_IDCS]]
-    bead_pos = torch.from_numpy(bead_pos).float().to(device)
-    bead_types = torch.from_numpy(bead_types).long().reshape(-1, 1).to(device)
-    edge_index = get_edge_index(positions=bead_pos, r_max=r_max).to(device)
+    bead_pos = torch.from_numpy(bead_pos).float()
+    bead_types = torch.from_numpy(bead_types).long().reshape(-1, 1)
+    edge_index = get_edge_index(positions=bead_pos, r_max=r_max)
     batch = torch.zeros(len(bead_pos), device=device, dtype=torch.long)
-    bead2atom_idcs = torch.from_numpy(dataset[DataDict.BEAD2ATOM_IDCS]).long().to(device)
-    lvl_idcs_mask = torch.from_numpy(dataset[DataDict.LEVEL_IDCS_MASK]).bool().to(device)
-    lvl_idcs_anchor_mask = torch.from_numpy(dataset[DataDict.LEVEL_IDCS_ANCHOR_MASK]).long().to(device)
+    bead2atom_idcs = torch.from_numpy(dataset[DataDict.BEAD2ATOM_IDCS]).long()
+    lvl_idcs_mask = torch.from_numpy(dataset[DataDict.LEVEL_IDCS_MASK]).bool()
+    lvl_idcs_anchor_mask = torch.from_numpy(dataset[DataDict.LEVEL_IDCS_ANCHOR_MASK]).long()
     data = {
         AtomicDataDict.POSITIONS_KEY: bead_pos,
         f"{AtomicDataDict.POSITIONS_KEY}_slices": torch.tensor([0, len(bead_pos)]),
@@ -457,24 +462,149 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
         f"{DataDict.ATOM_POSITION}_slices": torch.tensor([0, bead2atom_idcs.max().item()+1])
     }
 
-    with torch.no_grad():
-        out = model(data)
-        predicted_dih = out.get(INVARIANT_ATOM_FEATURES).cpu().numpy()
-        predicted_b2a_rel_vec = out.get(EQUIVARIANT_ATOM_FEATURES).cpu().numpy()
-        reconstructed_atom_pos = out.get(ATOM_POSITIONS, None)
-        if reconstructed_atom_pos is not None:
-            reconstructed_atom_pos = reconstructed_atom_pos.cpu().numpy()
-    del out
+    for v in data.values():
+        v.to('cpu')
 
-    dataset[DataDict.BB_PHIPSI_PRED] = predicted_dih[None, ...]
-    dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED] = predicted_b2a_rel_vec[None, ...]
-    if reconstructed_atom_pos is not None:
-        dataset[DataDict.ATOM_POSITION_PRED] = reconstructed_atom_pos[None, ...]
+    already_computed_nodes = None
+    chunk = already_computed_nodes is not None
 
-    return dataset
+    while True:
+            batch_ = copy.deepcopy(data)
+            batch_[AtomicDataDict.ORIG_BATCH_KEY] = batch_[AtomicDataDict.BATCH_KEY].clone()
+
+            # Limit maximum batch size to avoid CUDA Out of Memory
+            x = batch_[AtomicDataDict.EDGE_INDEX_KEY]
+            y = x.clone()
+            if already_computed_nodes is not None:
+                y = y[:, ~torch.isin(y[0], already_computed_nodes)]
+            node_center_idcs = y[0].unique()
+            if len(node_center_idcs) == 0:
+                return
+
+            while y.shape[1] > batch_max_edges or len(y.unique()) > batch_max_atoms:
+                chunk = True
+                ### Pick the target edges LESS connected and remove all the node_center_idcs connected to those.
+                ### In this way, you prune the "less shared" nodes and keep only nodes that are "clustered",
+                ### thus maximizing the number of node_center_idcs while complaining to the self.batch_max_atoms restrain
+                
+                def get_y_edge_filter(y: torch.Tensor, correction: int):
+                    target_atom_idcs, count = torch.unique(y[1], return_counts=True)
+                    less_connected_atom_idcs = torch.topk(-count, max(1, max_atoms_correction_step - correction)).indices
+                    target_atom_idcs_to_remove = target_atom_idcs[less_connected_atom_idcs]
+                    node_center_idcs_to_remove = torch.unique(y[0][torch.isin(y[1], target_atom_idcs_to_remove)])
+                    return ~torch.isin(y[0], node_center_idcs_to_remove), correction
+                correction = 0
+                y_edge_filter, correction = get_y_edge_filter(y, correction=correction)
+                while y_edge_filter.sum() == 0:
+                    correction += 1
+                    if correction >= max_atoms_correction_step:
+                        print(
+                            f"Dataset with index {batch_['dataset_idx'].item()} has at least one center atom with connections"
+                             " that exceed 'batch_max_edges' or 'batch_max_atoms'")
+                        return
+                    y_edge_filter, correction = get_y_edge_filter(y, correction=correction)
+                y = y[:, y_edge_filter]
+                
+                #########################################################################################################
+            
+            x_ulen = len(x[0].unique())
+
+            if chunk:
+                batch_[AtomicDataDict.EDGE_INDEX_KEY] = y
+                x_edge_filter = torch.isin(x[0], y[0].unique())
+                if AtomicDataDict.EDGE_CELL_SHIFT_KEY in batch_:
+                    batch_[AtomicDataDict.EDGE_CELL_SHIFT_KEY] = batch_[AtomicDataDict.EDGE_CELL_SHIFT_KEY][x_edge_filter]
+                batch_[AtomicDataDict.BATCH_KEY] = batch_.get(AtomicDataDict.ORIG_BATCH_KEY, batch_[AtomicDataDict.BATCH_KEY])[y.unique()]
+                
+            del x
+            
+            # for slices_key, slices in data.__slices__.items():
+            #     batch_[f"{slices_key}_slices"] = torch.tensor(slices, dtype=int)
+            batch_["ptr"] = torch.nn.functional.pad(torch.bincount(batch_.get(AtomicDataDict.BATCH_KEY)).flip(dims=[0]), (0, 1), mode='constant').flip(dims=[0])
+            
+            # Remove all atoms that do not appear in edges and update edge indices
+            edge_index = batch_[AtomicDataDict.EDGE_INDEX_KEY]
+
+            edge_index_unique = edge_index.unique()
+
+            ignore_chunk_keys = ["bead2atom_idcs", "lvl_idcs_mask", "lvl_idcs_anchor_mask", "atom_pos"]
+            
+            for key in batch_.keys():
+                if key in [
+                    AtomicDataDict.BATCH_KEY,
+                    AtomicDataDict.ORIG_BATCH_KEY,
+                    AtomicDataDict.EDGE_INDEX_KEY,
+                    AtomicDataDict.EDGE_CELL_SHIFT_KEY
+                ] + ignore_chunk_keys:
+                    continue
+                dim = np.argwhere(np.array(batch_[key].size()) == len(batch_[AtomicDataDict.ORIG_BATCH_KEY])).flatten()
+                if len(dim) == 1:
+                    if dim[0] == 0:
+                        batch_[key] = batch_[key][edge_index_unique]
+                    elif dim[0] == 1:
+                        batch_[key] = batch_[key][:, edge_index_unique]
+                    elif dim[0] == 2:
+                        batch_[key] = batch_[key][:, :, edge_index_unique]
+                    else:
+                        raise Exception('Dimension not implemented')
+
+            last_idx = -1
+            batch_[AtomicDataDict.ORIG_EDGE_INDEX_KEY] = edge_index
+            updated_edge_index = edge_index.clone()
+            for idx in edge_index_unique:
+                if idx > last_idx + 1:
+                    updated_edge_index[edge_index >= idx] -= idx - last_idx - 1
+                last_idx = idx
+            batch_[AtomicDataDict.EDGE_INDEX_KEY] = updated_edge_index
+
+            node_index_unique = edge_index[0].unique()
+            del edge_index
+            del edge_index_unique
+
+            for k, v in batch_.items():
+                batch_[k] = v.to(device)
+
+            with torch.no_grad():
+                out = model(batch_)
+                predicted_dih = out.get(INVARIANT_ATOM_FEATURES).cpu().numpy()
+                predicted_b2a_rel_vec = out.get(EQUIVARIANT_ATOM_FEATURES).cpu().numpy()
+                reconstructed_atom_pos = out.get(ATOM_POSITIONS, None)
+                if reconstructed_atom_pos is not None:
+                    reconstructed_atom_pos = reconstructed_atom_pos.cpu().numpy()
+
+            if already_computed_nodes is None:
+                dataset[DataDict.BB_PHIPSI_PRED] = np.zeros((1, lvl_idcs_mask.shape[1], 2), dtype=float)
+                dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED] = np.zeros((1, lvl_idcs_mask.shape[1], lvl_idcs_mask.shape[2], 3), dtype=float)
+                if reconstructed_atom_pos is not None:
+                    dataset[DataDict.ATOM_POSITION_PRED] = reconstructed_atom_pos[None, ...]
+            
+            original_nodes = out[AtomicDataDict.ORIG_EDGE_INDEX_KEY][0].unique().cpu().numpy()
+            nodes = out[AtomicDataDict.EDGE_INDEX_KEY][0].unique().cpu().numpy()
+            
+            dataset[DataDict.BB_PHIPSI_PRED][:, original_nodes] = predicted_dih[None, nodes]
+            dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED][:, original_nodes] = predicted_b2a_rel_vec[None, nodes]
+            if reconstructed_atom_pos is not None:
+                fltr = np.argwhere(~np.isnan(reconstructed_atom_pos[:, 0])).flatten()
+                dataset[DataDict.ATOM_POSITION_PRED][:, fltr] = reconstructed_atom_pos[None, fltr]
+            
+            del out
+
+            if already_computed_nodes is None:
+                if len(node_index_unique) < x_ulen:
+                    already_computed_nodes = node_index_unique
+            elif len(already_computed_nodes) + len(node_index_unique) == x_ulen:
+                already_computed_nodes = None
+            else:
+                assert len(already_computed_nodes) + len(node_index_unique) < x_ulen
+                already_computed_nodes = torch.cat([already_computed_nodes, node_index_unique], dim=0)
+            
+            del batch_
+            if already_computed_nodes is None:
+                return dataset
 
 def build_minimizer_data(dataset: Dict, device='cpu'):
-    unique_residcs = np.array([x[0] for x in groupby(dataset[DataDict.ATOM_RESIDCS])])
+    no_cappings_filter = [x.split('_')[0] not in ['ACE', 'NME'] for x in dataset[DataDict.ATOM_NAMES]]
+    unique_residcs = np.array([x[0] for x in groupby(dataset[DataDict.ATOM_RESIDCS][no_cappings_filter])])
     chainidcs = dataset[DataDict.BEAD_CHAINIDCS]
     ca_pos = dataset[DataDict.CA_ATOM_POSITION][0]
     n_dih = dataset[DataDict.CA_BEAD_IDCS].sum()
@@ -564,7 +694,7 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
     angle_tolerance = np.array(angle_tolerance)
 
     movable_pos_idcs = np.ones((len(ca_pos) * 3,), dtype=bool)
-    movable_pos_idcs[np.arange(n_dih) * 3 + 1] = False
+    movable_pos_idcs[np.arange(len(ca_pos)) * 3 + 1] = False
 
     data = {
         "pos": atom_pos_pred,
@@ -592,33 +722,19 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
     return data
 
 def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads: bool, device: str = 'cpu'):
-    unique_residcs = np.array([x[0] for x in groupby(dataset[DataDict.ATOM_RESIDCS])])
-    n_atom_idcs = np.array([an.split('_')[-1]=='N' for an in dataset[DataDict.ATOM_NAMES]])
-    ca_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3'] for an in dataset[DataDict.ATOM_NAMES]])
-    c_atom_idcs = np.array([an.split('_')[-1]=='C' for an in dataset[DataDict.ATOM_NAMES]])
-
-    residue_contains_n = []
-    residue_contains_c = []
-    for resid in unique_residcs:
-        residue_atom_names = [an.split('_')[-1] for an in dataset[DataDict.ATOM_NAMES][dataset[DataDict.ATOM_RESIDCS] == resid]]
-        residue_contains_n.append('N' in residue_atom_names)
-        residue_contains_c.append('C' in residue_atom_names)
-    residue_contains_n = np.array(residue_contains_n)
-    residue_contains_c = np.array(residue_contains_c)
+    no_cappings_filter = [x.split('_')[0] not in ['ACE', 'NME'] for x in dataset[DataDict.ATOM_NAMES]]
+    unique_residcs = np.array([x[0] for x in groupby(dataset[DataDict.ATOM_RESIDCS][no_cappings_filter])])
+    n_atom_idcs = np.array([an.split('_')[-1]=='N' and an.split('_')[0] not in ['ACE', 'NME'] for an in dataset[DataDict.ATOM_NAMES]])
+    ca_atom_idcs = np.array([an.split('_')[-1] in ['CA'] for an in dataset[DataDict.ATOM_NAMES]])
+    c_atom_idcs = np.array([an.split('_')[-1]=='C' and an.split('_')[0] not in ['ACE', 'NME'] for an in dataset[DataDict.ATOM_NAMES]])
 
     ca_pos_pred = dataset[DataDict.ATOM_POSITION_PRED][0, ca_atom_idcs]
-    n_pos_pred = np.zeros_like(ca_pos_pred)
-    n_pos_pred[0] = 2*ca_pos_pred[0] - ca_pos_pred[1]
-    n_pos_pred[residue_contains_n] = dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs]
-    c_pos_pred = np.zeros_like(ca_pos_pred)
-    c_pos_pred[-1] = 2*ca_pos_pred[-1] - ca_pos_pred[-2]
-    c_pos_pred[residue_contains_c] = dataset[DataDict.ATOM_POSITION_PRED][0, c_atom_idcs]
+    n_pos_pred = dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs]
+    c_pos_pred = dataset[DataDict.ATOM_POSITION_PRED][0, c_atom_idcs]
 
     ca_names = dataset[DataDict.ATOM_NAMES][dataset[DataDict.CA_ATOM_IDCS]]
-    n_names = np.array(['XXX_N'] * len(ca_names))
-    n_names[residue_contains_n] = dataset[DataDict.ATOM_NAMES][n_atom_idcs]
-    c_names = np.array(['XXX_C'] * len(ca_names))
-    c_names[residue_contains_c] = dataset[DataDict.ATOM_NAMES][c_atom_idcs]
+    n_names = dataset[DataDict.ATOM_NAMES][n_atom_idcs]
+    c_names = dataset[DataDict.ATOM_NAMES][c_atom_idcs]
 
     atom_pos_pred = cat_interleave(
         [
@@ -636,6 +752,15 @@ def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads
         ],
     )
 
+    residue_contains_n = []
+    residue_contains_c = []
+    for resid in unique_residcs:
+        residue_atom_names = [an.split('_')[-1] for an in dataset[DataDict.ATOM_NAMES][dataset[DataDict.ATOM_RESIDCS] == resid]]
+        residue_contains_n.append('N' in residue_atom_names)
+        residue_contains_c.append('C' in residue_atom_names)
+    residue_contains_n = np.array(residue_contains_n)
+    residue_contains_c = np.array(residue_contains_c)
+    
     real_bb_atom_idcs = cat_interleave(
         [
             residue_contains_n,
@@ -739,8 +864,9 @@ def run_b2a_rel_vec_backmapping(dataset: Dict, use_predicted_b2a_rel_vec: bool =
 
 def adjust_bb_oxygens(dataset: Dict):
     atom_CA_idcs = dataset[DataDict.CA_ATOM_IDCS]
-    atom_C_idcs = np.array([an.split('_')[1] in ["C"] for an in dataset[DataDict.ATOM_NAMES]])
-    atom_O_idcs = np.array([an.split('_')[1] in ["O"] for an in dataset[DataDict.ATOM_NAMES]])
+    no_cappings_filter = [x.split('_')[0] not in ['ACE', 'NME'] for x in dataset[DataDict.ATOM_NAMES]]
+    atom_C_idcs = np.array([ncf and an.split('_')[1] in ["C"] for ncf, an in zip(no_cappings_filter, dataset[DataDict.ATOM_NAMES])])
+    atom_O_idcs = np.array([ncf and an.split('_')[1] in ["O"] for ncf, an in zip(no_cappings_filter, dataset[DataDict.ATOM_NAMES])])
 
     ca_pos = dataset[DataDict.ATOM_POSITION_PRED][0][atom_CA_idcs]
 
