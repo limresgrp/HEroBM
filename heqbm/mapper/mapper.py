@@ -334,7 +334,7 @@ class Mapper():
             self._bead_chainidcs = np.array(['A'] * sel.n_atoms)
         
         self._bead_names = np.array([f"{resname}_{bead}" for resname, bead in zip(sel.resnames, sel.names)])
-        self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB', 'RE'] for bn in self._bead_names])
+        self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB'] for bn in self._bead_names])
 
         bead_positions = []
         ca_atom_positions = []
@@ -429,9 +429,9 @@ class Mapper():
         self._bead_residcs = np.array(bead_residcs)
         self._atom_chainidcs = np.array(atom_chainidcs)
         self._bead2atom_idcs_instance = np.array(bead2atom_idcs_instance)
-        self._bb_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3', 'N', 'C'] for an in self._atom_names])
-        self._ca_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3'] for an in self._atom_names])
-        self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB', 'RE'] for bn in self._bead_names])
+        self._bb_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'N', 'C'] for an in self._atom_names])
+        self._ca_atom_idcs = np.array([an.split('_')[-1] in ['CA'] for an in self._atom_names])
+        self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB'] for bn in self._bead_names])
 
         self.store_extra_map_impl_cg()
         
@@ -527,9 +527,9 @@ class Mapper():
         self._atom_residcs = np.array(atom_residcs)
         self._bead_residcs = np.array(bead_residcs)
         self._bead_chainidcs = np.array(bead_chainidcs)
-        self._bb_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3', 'N', 'C'] for an in self._atom_names])
-        self._ca_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'CH3'] for an in self._atom_names])
-        self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB', 'RE'] for bn in self._bead_names])
+        self._bb_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'N', 'C'] for an in self._atom_names])
+        self._ca_atom_idcs = np.array([an.split('_')[-1] in ['CA'] for an in self._atom_names])
+        self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB'] for bn in self._bead_names])
 
         self.store_extra_map_impl()
 
@@ -702,7 +702,8 @@ class Mapper():
         phi_dict = {}
         psi_dict = {}
         omega_dict = {}
-        unique_residcs = np.unique(self._atom_residcs)
+        no_cappings_filter = [x.split('_')[0] not in ['ACE', 'NME'] for x in self._atom_names]
+        unique_residcs = np.unique(self._atom_residcs[no_cappings_filter])
         for prev_resid, curr_resid in zip(unique_residcs[:-1], unique_residcs[1:]):
             if curr_resid != prev_resid + 1:
                 continue
@@ -715,7 +716,7 @@ class Mapper():
 
         for atom_index, (name, resid) in enumerate(zip(self._atom_names, self._atom_residcs)):
             resname, atom_name = name.split('_')
-            if atom_name not in ['C', 'N', 'CA', 'CH3', 'O']:
+            if atom_name not in ['C', 'N', 'CA', 'O']:
                 continue
             for dih_dict, idcs_list in zip([phi_dict, psi_dict, omega_dict], [phi_dihedral_idcs, psi_dihedral_idcs, omega_dihedral_idcs]):
                 if resid in dih_dict:

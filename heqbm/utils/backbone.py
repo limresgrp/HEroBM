@@ -19,7 +19,7 @@ class Phi:
             self.C_prev = atom_index
         elif atom_name == 'N' and resid == self.prev_resid+1 and self.N is None:
             self.N = atom_index
-        elif atom_name in ['CA', 'CH3'] and resid == self.prev_resid+1 and self.CA is None:
+        elif atom_name == 'CA' and resid == self.prev_resid+1 and self.CA is None:
             self.CA = atom_index
         elif atom_name == 'C' and resid == self.prev_resid+1 and self.C is None:
             self.C = atom_index
@@ -53,7 +53,7 @@ class Psi:
         self.completion += 1
         if atom_name == 'N' and resid == self.resid and self.N is None:
             self.N = atom_index
-        elif atom_name in ['CA', 'CH3'] and resid == self.resid and self.CA is None:
+        elif atom_name == 'CA' and resid == self.resid and self.CA is None:
             self.CA = atom_index
         elif atom_name == 'C' and resid == self.resid and self.C is None:
             self.C = atom_index
@@ -93,7 +93,7 @@ class Omega:
             self.C = atom_index
         elif atom_name == 'N' and resid == self.resid+1 and self.N_next is None:
             self.N_next = atom_index
-        elif atom_name in ['CA', 'CH3'] and resid == self.resid+1 and self.CA_next is None:
+        elif atom_name == 'CA' and resid == self.resid+1 and self.CA_next is None:
             self.CA_next = atom_index
         else:
             self.completion -= 1
