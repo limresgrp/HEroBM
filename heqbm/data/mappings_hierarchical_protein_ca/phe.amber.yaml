@@ -1,0 +1,23 @@
+molecule: PHE
+
+atoms:
+  N:    BB    P1AA
+  H:    BB
+  CA:   BB    P0A CM
+  HA:   BB
+  CB:   BB    P1AC
+  HB2:  BB 
+  HB3:  BB    
+  CG:   BB    P2CB
+  CD1:  BB    P3BA
+  HD1:  BB 
+  CE1:  BB    P4AA
+  HE1:  BB 
+  CZ:   BB    P4AA
+  HZ:   BB 
+  CD2:  BB    P3BB
+  HD2:  BB 
+  CE2:  BB    P4BB
+  HE2:  BB 
+  C:    BB    P1AB
+  O:    BB    P2BA

@@ -1,11 +1,12 @@
 # general
-root: results/ligands
-run_name: zma
+root: results/A2A
+run_name: tutorial
+
 seed: 0
 dataset_seed: 0
 append: true
 default_dtype: float32
-device: cuda
+device: cuda:0
 
 # -- network --
 model_builders:
@@ -30,8 +31,8 @@ num_layers: 2
 env_embed_multiplicity: 128
 embed_initial_edge: true
 
-inv_out_irreps: "0x0e"    # Do NOT predict Phi and Psi, which are invariants, they are used only for BB optimization
-eq_out_irreps: 4x1o
+inv_out_irreps: 2x0e    # Predict Phi and Psi, which are invariants
+eq_out_irreps:  5x1o    # Max number of atoms per bead is 5, we predict up to 5 distance vectors
 readout_pre_pooling: true
 normalize_out_features: true
 
@@ -66,11 +67,13 @@ normalize_edge_energy_sum: false
 directed_graph: true
 dataset_list:
   - dataset: folder_npz
-    dataset_file_name: /storage_common/angiod/LIGANDS/ZMA/backmapping/npz/train/
+    dataset_file_name: --- /YOUR/PATH/TO/NPZ/TRAINING/DATASET(S)/FOLDER ---
     key_mapping:
       bead_types: bead_numbers
       bead_pos: pos
       bead2atom_rel_vectors: eq_atom_features
+      bb_phipsi: inv_atom_features                # Include for BB optimization
+      ca_next_direction: eq_atom_input_features   # Include for BB optimization
       bond_idcs: atom_bond_idx
       angle_idcs: atom_angle_idx
     npz_fixed_field_keys:
@@ -87,34 +90,87 @@ dataset_list:
     - atom_pos
 
 type_names:
-- ZMA_B8
-- ZMA_B1
-- ZMA_B3
-- ZMA_B10
-- ZMA_B11
-- ZMA_B9
-- ZMA_B2
-- ZMA_B6
-- ZMA_B5
-- ZMA_B7
-- ZMA_B4
+- ACE_RE
+- ALA_BB
+- ALA_SC1
+- ARG_BB
+- ARG_SC1
+- ARG_SC2
+- ASN_BB
+- ASN_SC1
+- ASP_BB
+- ASP_SC1
+- CYS_BB
+- CYS_SC1
+- CYX_BB
+- CYX_SC1
+- GLN_BB
+- GLN_SC1
+- GLU_BB
+- GLU_SC1
+- GLY_BB
+- HID_BB
+- HID_SC1
+- HID_SC2
+- HID_SC3
+- HIE_BB
+- HIE_SC1
+- HIE_SC2
+- HIE_SC3
+- HIS_BB
+- HIS_SC1
+- HIS_SC2
+- HIS_SC3
+- ILE_BB
+- ILE_SC1
+- LEU_BB
+- LEU_SC1
+- LYS_BB
+- LYS_SC1
+- LYS_SC2
+- MET_BB
+- MET_SC1
+- NME_RE
+- PHE_BB
+- PHE_SC1
+- PHE_SC2
+- PHE_SC3
+- PRO_BB
+- PRO_SC1
+- SER_BB
+- SER_SC1
+- THR_BB
+- THR_SC1
+- TRP_BB
+- TRP_SC1
+- TRP_SC2
+- TRP_SC3
+- TRP_SC4
+- TRP_SC5
+- TYR_BB
+- TYR_SC1
+- TYR_SC2
+- TYR_SC4
+- TYR_SC3
+- VAL_BB
+- VAL_SC1
 
 # logging
 wandb: false
-wandb_project: heqbm-ligands-zma
+wandb_project: heqbm-tutorial-a2a
 verbose: info
-log_batch_freq: 100
+log_batch_freq: 10
 
 # training
-n_train: [950]
+n_train: [200]
 n_val: [50]
 batch_size: 1
 validation_batch_size: 1
 
 # Configure maximum batch sizes to avoid GPU memory errors. This parameters have to be configured according to your GPU RAM #
 
-batch_max_edges: 100000             # Limit the maximum number of edges of a graph to be loaded on memory in a single batch
-batch_max_atoms: 1500               # Limit the maximum number of nodes of a graph to be loaded on memory in a single batch
+batch_max_edges: 50000              # Limit the maximum number of edges of a graph to be loaded on memory in a single batch
+batch_max_atoms: 1000               # Limit the maximum number of nodes of a graph to be loaded on memory in a single batch
 
 #############################################################################################################################
 
@@ -131,6 +187,12 @@ ema_use_num_updates: true
 
 # loss function
 loss_coeffs:
+  - inv_atom_features:     # Loss on Phi and Psi dihedral prediction, used for Backbone optimization
+    - 10.
+    - DihMSELoss
+    - TrainOnDelta: false
+      ignore_nan: true
+      ignore_zeroes: true
   - atom_pos:              # Loss on reconstructed atoms RMSD
     - 1.
     - MSELoss
@@ -153,19 +215,25 @@ optimizer_params:
   weight_decay: 0.
 
 metrics_components:
+  - - inv_atom_features
+    - mae
+    - ignore_nan: True
+  - - atom_pos
+    - mae
+    - ignore_nan: True
   - - eq_atom_features
     - mae
     - ignore_nan: True
 
 # lr scheduler, drop lr if no improvement for tot epochs
 lr_scheduler_name: ReduceLROnPlateau
-lr_scheduler_patience: 3
+lr_scheduler_patience: 10
 lr_scheduler_factor: 0.5
 
 early_stopping_lower_bounds:
   LR: 1.0e-6
 
 early_stopping_patiences:
-  validation_loss: 3
+  validation_loss: 10
 
 per_edge_species_scale: 1.

@@ -1,0 +1,14 @@
+molecule: SER
+
+atoms:
+  N:    BB   P1AA
+  H:    BB
+  CA:   BB   P0A CM
+  HA:   BB
+  CB:   BB   P1AC
+  HB2:  BB 
+  HB3:  BB 
+  OG:   BB   P2CB
+  HG:   BB 
+  C:    BB   P1AB
+  O:    BB   P2BA

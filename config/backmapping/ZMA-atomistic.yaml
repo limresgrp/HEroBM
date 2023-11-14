@@ -2,32 +2,25 @@
 #                                                  Experiment Metadata                                                      #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
-name: A2A_protein_inactive
-output_folder: backmapped/A2A/atomistic/protein/
+name: ZMA-atomistic
+output_folder: backmapped/ZMA/atomistic/
 
 # ------------------------------------------------------------------------------------------------------------------------- #
 #                                                       Input Data                                                          #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
-mapping_root: ./heqbm/data/mappings_hierarchical_protein
-structure_filename: /storage_common/angiod/A2A/tpr/a2a.tpr             # Supported formats: [top, pdb, gro, psf, tpr]
-traj_filenames:                                                        # Supported formats: [trr, xtc]
-  - /storage_common/angiod/A2A/trr/a2a.trr
-keep_hydrogens: false
-max_bead_atoms: 5
-selection: protein
+mapping_root: ./heqbm/data/mappings_hierarchical_zma
+structure_filename: /storage_common/angiod/LIGANDS/ZMA/atomistic/zma.gro      # Supported formats: [top, pdb, gro, psf, tpr]
+traj_filenames:                                                               # Supported formats: [trr, xtc]
+  - /storage_common/angiod/LIGANDS/ZMA/atomistic/zma_nopbc.xtc
+simulation_is_cg: false
+max_bead_atoms: 4
+selection: all
 
 # ------------------------------------------------------------------------------------------------------------------------- #
 #                                                Backmapping Model Config                                                   #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
-model_device: cuda:1
-model_config_file: config/training/A2A-protein.yaml
+model_device: cuda:0
+model_config_file: config/training/ZMA.yaml
 model_relative_weights: best_model.pth
-
-# ------------------------------------------------------------------------------------------------------------------------- #
-#                                                  Backmapping Backbone                                                     #
-# ------------------------------------------------------------------------------------------------------------------------- #
-
-bb_minimization_dtau: 1.e-1
-bb_minimization_eps:  1.e-4

@@ -1,0 +1,22 @@
+molecule: LEU
+
+atoms:
+  N:    BB   P1AA
+  H:    BB
+  CA:   BB   P0A CM
+  HA:   BB
+  CB:   BB   P1AC
+  HB2:  BB 
+  HB3:  BB 
+  CG:   BB   P2CB
+  HG:   BB 
+  CD1:  BB   P3BA
+  HD11: BB 
+  HD12: BB 
+  HD13: BB 
+  CD2:  BB   P3BB
+  HD21: BB 
+  HD22: BB 
+  HD23: BB 
+  C:    BB   P1AB
+  O:    BB   P2BA

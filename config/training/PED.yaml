@@ -1,11 +1,11 @@
 # general
 root: results/PED
-run_name: full-dataset
+run_name: tutorial
 seed: 0
 dataset_seed: 0
 append: true
 default_dtype: float32
-device: cuda:1
+device: cuda:0
 
 # -- network --
 model_builders:
@@ -31,7 +31,7 @@ env_embed_multiplicity: 128
 embed_initial_edge: true
 
 inv_out_irreps: 2x0e    # Predict Phi and Psi, which are invariants
-eq_out_irreps:  5x1o
+eq_out_irreps:  5x1o    # Max number of atoms per bead is 5, we predict up to 5 distance vectors
 readout_pre_pooling: true
 normalize_out_features: true
 
@@ -66,7 +66,7 @@ normalize_edge_energy_sum: false
 directed_graph: true
 dataset_list:
   - dataset: folder_npz
-    dataset_file_name: /storage_common/angiod/PED/backmapping/npz/train/
+    dataset_file_name: --- /YOUR/PATH/TO/NPZ/TRAINING/DATASET(S)/FOLDER --- # /storage_common/angiod/PED/backmapping/npz/train/
     key_mapping:
       bead_types: bead_numbers
       bead_pos: pos
@@ -90,7 +90,7 @@ dataset_list:
 
 validation_dataset_list:
   - validation_dataset: folder_npz
-    validation_dataset_file_name: /storage_common/angiod/PED/backmapping/npz/valid/
+    validation_dataset_file_name: --- /YOUR/PATH/TO/NPZ/VALIDATION/DATASET(S)/FOLDER --- # /storage_common/angiod/PED/backmapping/npz/valid/
     key_mapping:
       bead_types: bead_numbers
       bead_pos: pos
@@ -180,9 +180,9 @@ type_names:
 
 # logging
 wandb: false
-wandb_project: heqbm-PED-full-dataset
+wandb_project: heqbm-tutorial-PED
 verbose: info
-log_batch_freq: 10
+log_batch_freq: 100
 
 # training
 batch_size: 1
@@ -242,16 +242,19 @@ metrics_components:
   - - atom_pos
     - mae
     - ignore_nan: True
+  - - eq_atom_features
+    - mae
+    - ignore_nan: True
 
 # lr scheduler, drop lr if no improvement for tot epochs
 lr_scheduler_name: ReduceLROnPlateau
-lr_scheduler_patience: 3
+lr_scheduler_patience: 10
 lr_scheduler_factor: 0.5
 
 early_stopping_lower_bounds:
   LR: 1.0e-6
 
 early_stopping_patiences:
-  validation_loss: 3
+  validation_loss: 10
 
 per_edge_species_scale: 1.

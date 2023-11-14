@@ -1,0 +1,22 @@
+molecule: GLN
+
+atoms:
+  N:    BB   P1AA
+  H:    BB
+  CA:   BB   P0A CM
+  HA:   BB
+  CB:   BB   P1AC
+  HB2:  BB 
+  HB3:  BB 
+  CG:   BB   P2CB
+  HG2:  BB 
+  HG3:  BB 
+  CD:   BB   P3BA
+  OE1:  BB   P4AA
+  NE2:  BB   P4AB
+  HE21: BB 
+  HE22: BB 
+  HE11: BB 
+  HE12: BB 
+  C:    BB   P1AB
+  O:    BB   P2BA

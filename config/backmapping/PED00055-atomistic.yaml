@@ -2,32 +2,29 @@
 #                                                  Experiment Metadata                                                      #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
-name: 'ZMA_CG'
-output_folder: backmapped/LIGANDS/ZMA/CG/
+name: PED00055
+output_folder: backmapped/PED/atomistic/
 
 # ------------------------------------------------------------------------------------------------------------------------- #
 #                                                       Input Data                                                          #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
-mapping_root: /home/angiod@usi.ch/HEqBM/heqbm/data/mappings_hierarchical_zma
-structure_filename: /storage_common/angiod/LIGANDS/ZMA/CG/zma.gro             # Supported formats: [top, pdb, gro, psf, tpr]
-traj_filenames:                                                               # Supported formats: [trr, xtc]
-  - /storage_common/angiod/LIGANDS/ZMA/CG/zma_nopbc.xtc
-keep_hydrogens: false
-simulation_is_cg: true
-max_bead_atoms: 4
-selection: all
+mapping_root: ./heqbm/data/mappings_hierarchical_protein
+structure_filename: /storage_common/angiod/PED/pdb/test/PED00055e000.pdb      # Supported formats: [top, pdb, gro, psf, tpr]
+max_bead_atoms: 5
+selection: protein
 
 # ------------------------------------------------------------------------------------------------------------------------- #
 #                                                Backmapping Model Config                                                   #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
 model_device: cuda:0
-model_config_file: config/training/ligands-ZMA.yaml
+model_config_file: config/training/PED.yaml
 model_relative_weights: best_model.pth
 
 # ------------------------------------------------------------------------------------------------------------------------- #
 #                                                  Backmapping Backbone                                                     #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
+bb_minimization_dtau: 1.e-1
 bb_minimization_eps:  1.e-4
