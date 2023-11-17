@@ -257,4 +257,4 @@ early_stopping_lower_bounds:
 early_stopping_patiences:
   validation_loss: 10
 
-per_edge_species_scale: 1.
+# per_edge_species_scale: 1.

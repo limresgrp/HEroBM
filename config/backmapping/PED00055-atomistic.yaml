@@ -1,17 +1,16 @@
 # ------------------------------------------------------------------------------------------------------------------------- #
-#                                                  Experiment Metadata                                                      #
+#                                                       Output Data                                                         #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
-name: PED00055
 output_folder: backmapped/PED/atomistic/
 
 # ------------------------------------------------------------------------------------------------------------------------- #
 #                                                       Input Data                                                          #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
-mapping_root: ./heqbm/data/mappings_hierarchical_protein
+mapping_folder: mappings_hierarchical_protein
 structure_filename: /storage_common/angiod/PED/pdb/test/PED00055e000.pdb      # Supported formats: [top, pdb, gro, psf, tpr]
-max_bead_atoms: 5
+simulation_is_cg: false
 selection: protein
 
 # ------------------------------------------------------------------------------------------------------------------------- #
@@ -26,5 +25,6 @@ model_relative_weights: best_model.pth
 #                                                  Backmapping Backbone                                                     #
 # ------------------------------------------------------------------------------------------------------------------------- #
 
-bb_minimization_dtau: 1.e-1
-bb_minimization_eps:  1.e-4
+bb_minimisation_dtau: 1.e-1
+bb_initial_minimisation_eps: 1.e-2
+bb_minimisation_eps:  1.e-3
