@@ -34,8 +34,8 @@ class HierarchicalMapper(Mapper):
         }.items() if v is not None})
         return dataset
 
-    def __init__(self, root: Optional[str] = None) -> None:
-        super().__init__(root=root)
+    def __init__(self, mapping_folder: Optional[str] = None) -> None:
+        super().__init__(mapping_folder=mapping_folder)
     
     def _clear_extra_mappings(self):
         pass

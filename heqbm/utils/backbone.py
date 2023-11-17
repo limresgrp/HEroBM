@@ -1,6 +1,7 @@
 import torch
 import numpy as np
 from typing import List, Optional
+from heqbm.utils import DataDict
 from heqbm.utils.geometry import get_bonds, get_angles, get_dihedrals
 
 class Phi:
@@ -177,8 +178,10 @@ class MinimizeEnergy(torch.nn.Module):
         
         return energy_evaluation
 
-    def forward(self, data, t: int, minimize_dih: bool, unlock_ca: bool = False):
+    def forward(self, data, t: int, minimize_dih: bool, unlock_ca: bool = False, save_pos_minimisation_traj: bool = False):
         pos = data["pos"]
+        if save_pos_minimisation_traj:
+            data[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ].append(pos.cpu().numpy())
         if len(pos) == 0:
             return data, {}
         pos.requires_grad_(True)
@@ -213,25 +216,36 @@ class MinimizeEnergy(torch.nn.Module):
             data["pos"] = pos
         return data, energy_evaluation
     
-    def minimize(
+    def minimise(
         self,
         data,
         dtau=None,
         eps: float = 1e-3,
         minimize_dih: bool = True,
-        unlock_ca: bool = False
+        unlock_ca: bool = False,
+        verbose: bool = False,
+        trace_every: int = 0,
     ):
         if dtau is not None:
             data["dtau"] = dtau
+        if trace_every and DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ not in data:
+            data[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ] = []
         last_total_energy = torch.inf
-        for t in range(100000):
-            data, energy_evaluation = self(data, t, minimize_dih, unlock_ca)
+        for t in range(1, 100001):
+            data, energy_evaluation = self(
+                data,
+                t,
+                minimize_dih,
+                unlock_ca,
+                save_pos_minimisation_traj=(trace_every>0)and(not t%trace_every)
+            )
             if energy_evaluation is None:
                 return
             if not t % 300:
-                print(f"Step {t}")
-                for k in ["bond_energy", "angle_energy", "dihedral_energy", "total_energy"]:
-                    print(f"{k}: {energy_evaluation.get(k, torch.tensor(torch.nan)).item()}")
+                if verbose:
+                    print(f"Step {t}")
+                    for k in ["bond_energy", "angle_energy", "dihedral_energy", "total_energy"]:
+                        print(f"{k}: {energy_evaluation.get(k, torch.tensor(torch.nan)).item()}")
                 current_total_energy = energy_evaluation.get("total_energy")
                 if last_total_energy - current_total_energy < eps:
                     break

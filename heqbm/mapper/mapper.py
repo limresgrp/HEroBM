@@ -185,8 +185,16 @@ class Mapper():
             DataDict.PBC: self._pbc,
         }.items() if v is not None}
 
-    def __init__(self, root: Optional[str] = None) -> None:
-        self._root = root or os.path.join(os.path.dirname(__file__), '..', 'data', 'mappings')
+    def __init__(self, mapping_folder: Optional[str] = None) -> None:
+        if mapping_folder is None:
+            raise Exception(
+                """
+                You must provide the mapping folder.
+                Add 'mapping_folder: name-of-mapping-folder' in the config file.
+                mappings are specified in a mapping folder inside 'heqbm/data/'
+                """
+            )
+        self._root = os.path.join(os.path.dirname(__file__), '..', 'data', mapping_folder)
 
         # Iterate configuration files and load all mappings
         self._clear_mappings()
@@ -321,7 +329,7 @@ class Mapper():
 
         self.u = mda.Universe(conf.get("structure_filename"), *conf.get("traj_filenames", []), **conf.get("extra_kwargs", {}))
         
-        if conf.get("simulation_is_cg", False):
+        if conf.get("simulation_is_cg", True):
             return self.map_impl_cg(selection=selection, frame_limit=frame_limit)
         return self.map_impl(selection=selection, frame_limit=frame_limit)
     

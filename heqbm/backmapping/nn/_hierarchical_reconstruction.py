@@ -8,9 +8,6 @@ from heqbm.backmapping.allegro._keys import (
 from e3nn.o3 import Irreps
 from e3nn.util.jit import compile_mode
 
-import os
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-
 @compile_mode("script")
 class HierarchicalReconstrucitonModule(GraphModuleMixin, torch.nn.Module):
 
@@ -50,8 +47,8 @@ class HierarchicalReconstrucitonModule(GraphModuleMixin, torch.nn.Module):
         level_idcs_mask_slices = data["lvl_idcs_mask_slices"]
         level_idcs_anchor_mask = data["lvl_idcs_anchor_mask"]
 
-        orig_center_atoms = data[AtomicDataDict.ORIG_EDGE_INDEX_KEY][0].unique()
-        center_atoms = data[AtomicDataDict.EDGE_INDEX_KEY][0].unique()
+        orig_center_atoms = torch.unique(data[AtomicDataDict.ORIG_EDGE_INDEX_KEY][0])
+        center_atoms = torch.unique(data[AtomicDataDict.EDGE_INDEX_KEY][0])
 
         per_bead_reconstructed_atom_pos = []
         for (b2a_idcs_from, b2a_idcs_to), (idcs_mask_from, idcs_mask_to), atom_pos_from in zip(
@@ -62,7 +59,7 @@ class HierarchicalReconstrucitonModule(GraphModuleMixin, torch.nn.Module):
             batch_orig_center_atoms = orig_center_atoms[(orig_center_atoms>=b2a_idcs_from) & (orig_center_atoms<b2a_idcs_to)]
             batch_center_atoms = center_atoms[(orig_center_atoms>=b2a_idcs_from) & (orig_center_atoms<b2a_idcs_to)]
             for h, h_orig, b2a_idcs in zip(batch_center_atoms, batch_orig_center_atoms, idcs_mask[batch_orig_center_atoms]):
-                reconstructed_atom_pos = torch.empty((atom_pos_slices[-1], 3), dtype=torch.float32, device=bead2atom_relative_vectors.device)
+                reconstructed_atom_pos = torch.empty(atom_pos_slices[-1], 3, dtype=torch.float32, device=bead2atom_relative_vectors.device)
                 reconstructed_atom_pos[:] = torch.nan
                 reconstructed_atom_pos[b2a_idcs[b2a_idcs>=0] + atom_pos_from] = bead_pos[h, None, ...]
 

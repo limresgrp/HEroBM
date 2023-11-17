@@ -25,6 +25,8 @@ CA_BEAD_IDCS: Final[str] = "ca_bead_idcs"
 
 ATOM_POSITION_PRED: Final[str] = "atom_pos_pred"
 BB_ATOM_POSITION_PRED: Final[str] = "bb_atom_position_pred"
+ATOM_POSITION_MINIMISATION_TRAJ: Final[str] = "pos_minimisation_traj"
+BB_ATOM_POSITION_MINIMISATION_TRAJ: Final[str] = "bb_pos_minimisation_traj"
 
 ATOM_NAMES: Final[str] = "atom_names"
 BEAD_NAMES: Final[str] = "bead_names"
