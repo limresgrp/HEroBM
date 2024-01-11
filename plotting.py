@@ -115,27 +115,27 @@ def plot_cg_impl(
         xaxis = dict(
             nticks=3,
             range=range,
-            backgroundcolor="rgba(0,0,0,0.2)",
+            backgroundcolor="rgba(.9,.9,1.,0.6)",
             gridcolor="gray",
-            showbackground=False,
+            showbackground=True,
             showgrid = True,
             showticklabels = False
             ),
         yaxis = dict(
             nticks=3,
             range=range,
-            backgroundcolor="rgba(0,0,0,0.1)",
+            backgroundcolor="rgba(.9,.9,1.,0.6)",
             gridcolor="gray",
-            showbackground=False,
+            showbackground=True,
             showgrid = True,
             showticklabels = False
             ),
         zaxis = dict(
             nticks=3,
             range=range,
-            backgroundcolor="rgba(0,0,0,0.4)",
+            backgroundcolor="rgba(.9,.9,1.,0.8)",
             gridcolor="gray",
-            showbackground=False,
+            showbackground=True,
             showgrid = True,
             showticklabels = False
             ),

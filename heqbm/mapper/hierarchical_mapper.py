@@ -1,5 +1,5 @@
 import numpy as np
-from typing import List, Optional
+from typing import Dict, List
 from heqbm.mapper import Mapper
 from heqbm.mapper.bead import Bead
 from heqbm.utils import DataDict
@@ -34,8 +34,8 @@ class HierarchicalMapper(Mapper):
         }.items() if v is not None})
         return dataset
 
-    def __init__(self, mapping_folder: Optional[str] = None) -> None:
-        super().__init__(mapping_folder=mapping_folder)
+    def __init__(self, config: Dict) -> None:
+        super().__init__(config=config)
     
     def _clear_extra_mappings(self):
         pass

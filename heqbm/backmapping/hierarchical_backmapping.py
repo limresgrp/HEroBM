@@ -61,7 +61,7 @@ class HierarchicalBackmapping:
 
         ### Parse Input ###
         
-        self.mapping = HierarchicalMapper(mapping_folder=self.config.get("mapping_folder", None))
+        self.mapping = HierarchicalMapper(config=self.config)
         self.mapping.map(self.config, selection=self.config.get("selection", "all"))
 
         ### Load Model ###

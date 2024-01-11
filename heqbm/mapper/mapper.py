@@ -10,7 +10,7 @@ import MDAnalysis as mda
 import pandas as pd
 
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 from MDAnalysis.core.groups import Atom
 from ase.cell import Cell
 
@@ -184,7 +184,8 @@ class Mapper():
             DataDict.PBC: self._pbc,
         }.items() if v is not None}
 
-    def __init__(self, mapping_folder: Optional[str] = None) -> None:
+    def __init__(self, config: Dict) -> None:
+        mapping_folder = config.get("mapping_folder", None)
         if mapping_folder is None:
             raise Exception(
                 """
@@ -194,14 +195,15 @@ class Mapper():
                 """
             )
         self._root = os.path.join(os.path.dirname(__file__), '..', 'data', mapping_folder)
+        self._keep_hydrogens = config.get("keep_hydrogens", False)
+        self._weigth_based_on = config.get("weigth_based_on", "mass")
+        self._max_bead_atoms = config.get("max_bead_atoms", self._max_bead_atoms)
 
         # Iterate configuration files and load all mappings
         self._clear_mappings()
         self._load_mappings()
 
     def _clear_mappings(self):
-        self._keep_hydrogens: bool = False
-        self._weigth_based_on: str = 'mass'
         self._valid_configurations_list: dict[str, list] = {}
         self._valid_configurations: dict[str, np.ndarray] = {}
 
@@ -212,7 +214,6 @@ class Mapper():
         self._incomplete_beads.clear()
         self._complete_beads.clear()
         self._ordered_beads.clear()
-        self._max_bead_atoms: int = 0
 
         self._bead2atom_idcs_instance: np.ndarray = None
         self._weights_instance: np.ndarray = None
@@ -322,9 +323,6 @@ class Mapper():
         # New mapping, clear last records
         self._incomplete_beads.clear()
         self._complete_beads.clear()
-        self._keep_hydrogens = conf.get("keep_hydrogens", False)
-        self._weigth_based_on = conf.get("weigth_based_on", "mass")
-        self._max_bead_atoms = conf.get("max_bead_atoms", self._max_bead_atoms)
 
         self.u = mda.Universe(conf.get("structure_filename"), *conf.get("traj_filenames", []), **conf.get("extra_kwargs", {}))
         
