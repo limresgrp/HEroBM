@@ -154,7 +154,7 @@ class HierarchicalBackmapping:
             device=device,
         )
         
-        # Step 1: initial minimization: Rotate local minimum to find global minimum basin
+        # Step 1: initial minimization: adjust bonds, angles and Omega dihedral
         self.minimizer.minimise(
             data=minimizer_data,
             dtau=self.config.get("bb_minimisation_dtau", 1e-1),
@@ -187,7 +187,13 @@ class HierarchicalBackmapping:
             )[:, real_bb_atom_idcs]
         return backmapping_dataset, minimizer_data
         
-    def backmap(self, frame_index: int, optimize_backbone: bool = True, device: str = 'cpu', verbose: bool = False):
+    def backmap(
+        self,
+        frame_index: int,
+        device: str = 'cpu',
+        verbose: bool = False,
+        optimize_backbone: Optional[bool] = None,
+    ):
         
         backmapping_dataset = self.mapping.dataset
         for k in [
@@ -203,6 +209,7 @@ class HierarchicalBackmapping:
             if k in backmapping_dataset:
                 backmapping_dataset[k] = backmapping_dataset[k][frame_index:frame_index+1]
         
+        optimize_backbone = optimize_backbone or self.config.get("optimize_backbone", True)
         if DataDict.CA_BEAD_IDCS not in backmapping_dataset or (backmapping_dataset[DataDict.CA_BEAD_IDCS].sum() == 0):
             optimize_backbone = False
         
@@ -278,13 +285,14 @@ class HierarchicalBackmapping:
             backmapping_dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED]
             backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset)
 
-            backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ] = np.repeat(
-                backmapping_dataset[DataDict.ATOM_POSITION_PRED],
-                len(backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]),
-                axis=0
-            )
-            backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ][:, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]
-            backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset, position_key=DataDict.ATOM_POSITION_MINIMISATION_TRAJ)
+            if DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ in backmapping_dataset:
+                backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ] = np.repeat(
+                    backmapping_dataset[DataDict.ATOM_POSITION_PRED],
+                    len(backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]),
+                    axis=0
+                )
+                backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ][:, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]
+                backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset, position_key=DataDict.ATOM_POSITION_MINIMISATION_TRAJ)
 
             print(f"Finished. Time: {time.time() - t}")
         
@@ -766,23 +774,23 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
         
         bond_idcs.append([atom_id, atom_id+1])
         bond_eq_val.append(1.45) # N - CA bond length
-        bond_tolerance.append(0.03)
+        bond_tolerance.append(0.03) # Permissible values [1.42, 1.48]
 
         bond_idcs.append([atom_id+1, atom_id+2])
         bond_eq_val.append(1.52) # CA - C bond length
-        bond_tolerance.append(0.03)
+        bond_tolerance.append(0.03) # Permissible values [1.49, 1.55]
         
         if resid == next_resid - 1 and chainidcs[id_] == chainidcs[id_+1]:
             bond_idcs.append([atom_id+1, atom_id+4])
-            bond_eq_val.append(3.81) # CA - CA bond length ranges from 3.77 to 3.85
-            bond_tolerance.append(0.05)
+            bond_eq_val.append(3.81) # CA - CA bond length
+            bond_tolerance.append(0.05) # Permissible values [1.76, 1.86]
             ca_bond_idcs.append([atom_id+1, atom_id+4])
-            ca_bond_eq_val.append(3.81) # CA - CA bond length ranges from 3.78 to 3.83
-            ca_bond_tolerance.append(0.03)
+            ca_bond_eq_val.append(3.81) # CA - CA bond length
+            ca_bond_tolerance.append(0.03) # Permissible values [1.78, 1.84]
 
             bond_idcs.append([atom_id+2, atom_id+3])
             bond_eq_val.append(1.34) # C - N bond length
-            bond_tolerance.append(0.03)
+            bond_tolerance.append(0.03) # Permissible values [1.31, 1.37]
 
         angle_idcs.append([atom_id, atom_id+1, atom_id+2])
         angle_eq_val.append(1.9216075) # N - CA - C angle value
@@ -801,11 +809,11 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
         atom_id = (id_ + 1) * 3 # N    
         bond_idcs.append([atom_id, atom_id+1])
         bond_eq_val.append(1.45) # N - CA bond length
-        bond_tolerance.append(0.03)
+        bond_tolerance.append(0.03) # Permissible values [1.42, 1.48]
 
         bond_idcs.append([atom_id+1, atom_id+2])
         bond_eq_val.append(1.52) # CA - C bond length
-        bond_tolerance.append(0.03)
+        bond_tolerance.append(0.03) # Permissible values [1.49, 1.55]
 
         angle_idcs.append([atom_id, atom_id+1, atom_id+2])
         angle_eq_val.append(1.9216075) # N - CA - C angle value
@@ -1108,7 +1116,6 @@ def backmap(config_filename: str, frame_selection: Optional[slice] = None, verbo
         print(f"Starting backmapping for frame index {frame_index} ({i+1}/{n_frames})")
         backmapping_dataset = backmapping.backmap(
             frame_index=frame_index,
-            optimize_backbone=True,
             verbose=verbose,
         )
         CG_u, backmapped_u, bb_minimisation_u = backmapping.to_pdb(

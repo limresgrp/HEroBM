@@ -11,18 +11,18 @@ from matplotlib import pyplot as plt
 
 
 def plot_rama_janin(dih_list, dih_list_true, ref_back: bool = True):
-    fig_rama, ax_rama = plt.subplots(figsize=(12, 12), facecolor='white')
-    fig_janin, ax_janin = plt.subplots(figsize=(12, 12), facecolor='white')
+    fig_rama, ax_rama = plt.subplots(figsize=(8, 8), facecolor='white')
+    fig_janin, ax_janin = plt.subplots(figsize=(8, 8), facecolor='white')
     
     for (rama, janin) in dih_list:
-        rama.plot(ax=ax_rama, ref=ref_back, marker='d', color='orange', edgecolors='black', s=25, linewidth=.5)
-        janin.plot(ax=ax_janin, ref=ref_back, marker='d', color='orange', edgecolors='black', s=25, linewidth=.5)
+        rama.plot(ax=ax_rama, ref=ref_back, marker='d', color='red', edgecolors='black', s=25, linewidth=.5)
+        janin.plot(ax=ax_janin, ref=ref_back, marker='d', color='red', edgecolors='black', s=25, linewidth=.5)
         
     for (rama_true, janin_true) in dih_list_true:
         rama_true_scatter = rama_true.results.angles.reshape(np.prod(rama_true.results.angles.shape[:2]), 2)
-        ax_rama.scatter(rama_true_scatter[:, 0], rama_true_scatter[:, 1], marker='x', s=20, alpha=0.2, color='black', edgecolors='red', linewidth=2)
+        ax_rama.scatter(rama_true_scatter[:, 0], rama_true_scatter[:, 1], marker='x', s=20, alpha=0.2, color='black', edgecolors='lime', linewidth=2)
         janin_true_scatter = janin_true.results.angles.reshape(np.prod(janin_true.results.angles.shape[:2]), 2)
-        ax_janin.scatter(janin_true_scatter[:, 0], janin_true_scatter[:, 1], marker='x', s=20, alpha=0.2, color='black', edgecolors='red', linewidth=2)
+        ax_janin.scatter(janin_true_scatter[:, 0], janin_true_scatter[:, 1], marker='x', s=20, alpha=0.2, color='black', edgecolors='lime', linewidth=2)
     
     ax_rama.set_xlabel(r'')
     ax_rama.set_ylabel(r'')

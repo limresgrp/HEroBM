@@ -19,7 +19,6 @@ from heqbm.utils import DataDict
 from heqbm.utils.backbone import Phi, Psi, Omega
 from heqbm.utils.atomType import get_type_from_name
 from heqbm.utils.geometry import get_dihedrals
-from heqbm.utils.pdbFixer import fixPDB
 
 
 class Mapper():
