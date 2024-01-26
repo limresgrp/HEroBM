@@ -35,41 +35,45 @@ class BeadMappingAtomSettings:
         self._relative_weight_set: bool = False
 
         for setting in bead_settings:
-            if setting == "!":
-                self.exclude_from_cm()
-                continue
-            if setting == "CM":
-                self.set_is_cm()
-                continue
+            try:
+                if setting == "!":
+                    self.exclude_from_cm()
+                    continue
+                if setting == "CM":
+                    self.set_is_cm()
+                    continue
 
-            hierarchy_pattern = 'P(\d+)([A-Z])([A-Z])*'
-            result = re.search(hierarchy_pattern, setting)
-            if result is not None:
-                groups = result.groups()
-                assert len(groups) == 3
-                self.set_hierarchy_level(int(groups[0]))
-                if groups[-1] is None:
-                    self.set_hierarchy_name(groups[1])
-                else:
-                    self.set_hierarchy_previous_name(groups[1])
-                    self.set_hierarchy_name(groups[2])
-                continue
-            
-            weight_pattern = '(\d)/(\d)'
-            result = re.search(weight_pattern, setting)
-            if result is not None:
-                groups = result.groups()
-                assert len(groups) == 2
-                self.set_relative_weight(float(int(groups[0])/int(groups[1])))
-                continue
+                hierarchy_pattern = 'P(\d+)([A-Z])([A-Z])*'
+                result = re.search(hierarchy_pattern, setting)
+                if result is not None:
+                    groups = result.groups()
+                    assert len(groups) == 3
+                    self.set_hierarchy_level(int(groups[0]))
+                    if groups[-1] is None:
+                        self.set_hierarchy_name(groups[1])
+                    else:
+                        self.set_hierarchy_previous_name(groups[1])
+                        self.set_hierarchy_name(groups[2])
+                    continue
+                
+                weight_pattern = '(\d)/(\d)'
+                result = re.search(weight_pattern, setting)
+                if result is not None:
+                    groups = result.groups()
+                    assert len(groups) == 2
+                    self.set_relative_weight(float(int(groups[0])/int(groups[1])))
+                    continue
 
-            weight_pattern = '(\d*(?:\.\d+)?)'
-            result = re.search(weight_pattern, setting)
-            if result is not None:
-                groups = result.groups()
-                assert len(groups) == 1
-                self.set_relative_weight(float(groups[0]))
-                continue
+                weight_pattern = '(\d*(?:\.\d+)?)'
+                result = re.search(weight_pattern, setting)
+                if result is not None:
+                    groups = result.groups()
+                    assert len(groups) == 1
+                    self.set_relative_weight(float(groups[0]))
+                    continue
+            except ValueError as e:
+                print(f"Error while parsing mapping for bead {self.bead_name}. Incorrect mapping setting: {setting}")
+                raise e
         
         if not self._relative_weight_set:
             self.set_relative_weight(self.relative_weight / self._num_shared_beads)

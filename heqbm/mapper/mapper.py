@@ -323,6 +323,7 @@ class Mapper():
         # New mapping, clear last records
         self._incomplete_beads.clear()
         self._complete_beads.clear()
+        self._ordered_beads.clear()
 
         self.u = mda.Universe(conf.get("structure_filename"), *conf.get("traj_filenames", []), **conf.get("extra_kwargs", {}))
         
