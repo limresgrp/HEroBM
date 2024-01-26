@@ -68,6 +68,8 @@ class HierarchicalBackmapping:
 
         # first, try to load a deployed model, if it is specified in the config file
 
+        print("Loading model...")
+
         loaded_deployed_model = False
         deployed_model = self.config.get("model", None)
         if deployed_model is not None:
@@ -83,6 +85,7 @@ class HierarchicalBackmapping:
                 # above
                 self.model_r_max = float(metadata[R_MAX_KEY])
                 loaded_deployed_model = True
+                print("Loaded deployed model")
             except ValueError:  # its not a deployed model
                 loaded_deployed_model = False
 
@@ -99,6 +102,7 @@ class HierarchicalBackmapping:
                     config=self.config,
                 )
                 self.model_r_max = float(training_model_config[R_MAX_KEY])
+                print("Loaded model from training session")
             else:
                 raise Exception(
                     """You did not provide the 'model_training_config_file' path and the deployed model was
@@ -209,7 +213,8 @@ class HierarchicalBackmapping:
             if k in backmapping_dataset:
                 backmapping_dataset[k] = backmapping_dataset[k][frame_index:frame_index+1]
         
-        optimize_backbone = optimize_backbone or self.config.get("optimize_backbone", True)
+        if optimize_backbone is None:
+            optimize_backbone = self.config.get("optimize_backbone", True)
         if DataDict.CA_BEAD_IDCS not in backmapping_dataset or (backmapping_dataset[DataDict.CA_BEAD_IDCS].sum() == 0):
             optimize_backbone = False
         
@@ -274,6 +279,8 @@ class HierarchicalBackmapping:
             try:
                 no_bb_fltr = np.array([an.split('_')[1] not in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
                 print(f"RMSD on Side-Chains: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=no_bb_fltr):4.3f} Angstrom")
+                bb_fltr = np.array([an.split('_')[1] in ["CA", "C", "N" "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
+                print(f"RMSD on Backbone: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=bb_fltr):4.3f} Angstrom")
             except:
                 pass
 

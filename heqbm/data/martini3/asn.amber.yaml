@@ -1,0 +1,17 @@
+molecule: ASN
+
+atoms:
+  N:    BB   P1A
+  H:    BB
+  CA:   BB   P1C
+  HA:   BB   !
+  CB:   SC1  P2AA
+  HB2:  SC1  !
+  HB3:  SC1  !
+  CG:   SC1  P1A
+  OD1:  SC1  P2AB
+  ND2:  SC1  P2AC
+  HD21: SC1
+  HD22: SC1
+  C:    BB   P1B
+  O:    BB   P2BA

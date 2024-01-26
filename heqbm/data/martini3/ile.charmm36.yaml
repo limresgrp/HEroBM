@@ -1,0 +1,22 @@
+molecule: ILE
+
+atoms:
+  N:    BB   P1A
+  HN:   BB
+  CA:   BB   P1C
+  HA:   BB   !
+  CB:   SC1  P1A
+  HB:   SC1
+  CG2:  SC1  P2AB
+  HG21: SC1  !
+  HG22: SC1  !
+  HG23: SC1  !
+  CG1:  SC1  P2AA
+  HG11: SC1  !
+  HG12: SC1  !
+  CD:   SC1  P3AA
+  HD1:  SC1  !
+  HD2:  SC1  !
+  HD3:  SC1  !
+  C:    BB   P1B
+  O:    BB   P2BA

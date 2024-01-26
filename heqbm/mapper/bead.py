@@ -20,6 +20,7 @@ class BeadMappingAtomSettings:
 
         self._num_shared_beads: int = num_shared_beads
 
+        self._contributes_to_cm: bool = True
         self._is_cm: bool = False
         self._has_cm: bool = False
 
@@ -34,6 +35,9 @@ class BeadMappingAtomSettings:
         self._relative_weight_set: bool = False
 
         for setting in bead_settings:
+            if setting == "!":
+                self.exclude_from_cm()
+                continue
             if setting == "CM":
                 self.set_is_cm()
                 continue
@@ -71,6 +75,10 @@ class BeadMappingAtomSettings:
             self.set_relative_weight(self.relative_weight / self._num_shared_beads)
 
     @property
+    def contributes_to_cm(self):
+        return self._contributes_to_cm
+
+    @property
     def is_cm(self):
         return self._is_cm
 
@@ -98,6 +106,9 @@ class BeadMappingAtomSettings:
     def relative_weight(self):
         return self._relative_weight
     
+    def exclude_from_cm(self):
+        self._contributes_to_cm = False
+
     def set_is_cm(self, is_cm: bool = True):
         self._is_cm = is_cm
         self.set_has_cm(is_cm)
@@ -247,7 +258,9 @@ class Bead:
         if bmas.has_cm:
             weight = 1. * bmas.is_cm
         elif isinstance(atom, Atom):
-            if self.weigth_based_on == "mass":
+            if not bmas.contributes_to_cm:
+                pass
+            elif self.weigth_based_on == "mass":
                 weight = atom.mass
             elif self.weigth_based_on == "same":
                 weight = 1.

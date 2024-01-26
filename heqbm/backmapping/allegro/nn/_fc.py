@@ -1,8 +1,8 @@
+import torch
+
+from torch import fx
 from math import sqrt
 from typing import Callable, List, Optional
-
-import torch
-from torch import fx
 
 from e3nn.util.jit import compile_mode
 from e3nn.util.codegen import CodeGenMixin
