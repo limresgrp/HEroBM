@@ -5,6 +5,10 @@
 /wandb
 /paper
 **/local
+/tutorial
+/deployed
+*.png
+*.PNG
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
