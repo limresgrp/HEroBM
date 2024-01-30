@@ -107,6 +107,7 @@ def get_RMSD(
     ref:  Union[torch.Tensor, np.ndarray],
     fltr: Optional[np.ndarray] = None,
     ignore_zeroes: bool = False,
+    ignore_nan: bool = False,
 ):
     if isinstance(pos, torch.Tensor):
         pos = pos.cpu().numpy()
@@ -115,6 +116,9 @@ def get_RMSD(
     if fltr is not None:
         pos = pos[..., fltr, :]
         ref = ref[..., fltr, :]
+    if ignore_nan:
+        ref = ref[:, ~np.any(np.isnan(pos)[0], axis=-1)]
+        pos = pos[:, ~np.any(np.isnan(pos)[0], axis=-1)]
     not_zeroes = np.ones_like(ref).mean(axis=-1).astype(int) if not ignore_zeroes else (~np.all(ref == 0., axis=-1)).astype(int)
     sd =  (np.power(pos - ref, 2).sum(-1)) * not_zeroes
     msd = sd.sum() / not_zeroes.sum()

@@ -286,6 +286,7 @@ class Mapper():
             
             for bead_name, bms in self._bead_mapping_settings.items():
                 bms.update_relative_weights()
+                self._max_bead_atoms = max(self._max_bead_atoms, bms.bead_atoms)
                 
             for bead_name, bead2atom in _conf_bead2atom.items():
                 _bead2atom = self._bead2atom.get(bead_name, [])
@@ -299,7 +300,6 @@ class Mapper():
         for k, b2a in self._bead2atom.items():
             len_base = self.get_bead2atom_len(b2a[0])
             assert all([self.get_bead2atom_len(v) == len_base for v in b2a]), f"Configurations for bead type {k} have different number of atoms"
-            self._max_bead_atoms = max(self._max_bead_atoms, len_base)
 
         ### Compute global mask and maximum bead size ###
         self._bead2atom_idcs_mask = np.zeros((self.n_bead_types, self._max_bead_atoms), dtype=bool)
@@ -385,8 +385,11 @@ class Mapper():
         unique_chain_idcs = np.insert(np.unique(self._bead_chainidcs), 0, '')
 
         chainid2residoffset = {}
-        for prev_chaid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
-                chainid2residoffset[chainid] = chainid2residoffset.get(prev_chaid, 0) + resnums[self._bead_chainidcs == prev_chaid].max(initial=0)
+        for prev_chainid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
+                chainid2residoffset[chainid] = chainid2residoffset.get(prev_chainid, 0) + \
+                                               resnums[self._bead_chainidcs == prev_chainid].max(initial=0) + \
+                                               -resnums[self._bead_chainidcs == chainid].min() + \
+                                               1
 
         atom_index_offset = 0
         _id = 0
@@ -474,8 +477,11 @@ class Mapper():
             resnums = sel.resnums
             unique_chain_idcs = np.insert(np.unique(temp_atom_chainidcs), 0, '')
             # chainid2residoffset is used to adjust resid values in pdbs with multiple chains, because the resid are repeated across chains
-            for prev_chaid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
-                chainid2residoffset[chainid] = chainid2residoffset.get(prev_chaid, 0) + resnums[temp_atom_chainidcs == prev_chaid].max(initial=0)
+            for prev_chainid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
+                chainid2residoffset[chainid] = chainid2residoffset.get(prev_chainid, 0) + \
+                                               resnums[temp_atom_chainidcs == prev_chainid].max(initial=0) + \
+                                               -resnums[temp_atom_chainidcs == chainid].min() + \
+                                               1
         except mda.exceptions.NoDataError:
             pass
 
@@ -526,8 +532,12 @@ class Mapper():
         # Complete all beads. Missing atoms will be ignored
         for bead in self._incomplete_beads:
             self._complete_bead(bead)
-        for bead in self._complete_beads:
-            self._incomplete_beads.remove(bead)
+            self._check_bead_completeness(bead)
+        # Uncomment for martini3_like ###########
+        if not self._keep_hydrogens:
+            for bead in self._complete_beads:
+                self._incomplete_beads.remove(bead)
+        #########################################
         self._atom_names = np.array(atom_names)
         self._bead_names = np.array(bead_names)
         self._atom_residcs = np.array(atom_residcs)
@@ -544,12 +554,13 @@ class Mapper():
             self._atom_chainidcs = sel.chainIDs
         except mda.exceptions.NoDataError:
             self._atom_chainidcs = np.array(['A'] * sel.n_atoms)
-        self.compute_invariants(selection=sel)
         
         # Extract the indices of the atoms in the trajectory file for each bead
         self.compute_bead2atom_idcs_and_weights()
 
         self.compute_extra_map_impl()
+
+        self.compute_invariants(selection=sel)
         
         # Read trajectory and map atom coords to bead coords
         atom_positions = []
@@ -679,6 +690,11 @@ class Mapper():
     def _check_bead_completeness(self, bead: Bead):
         if bead.is_complete and not (bead in self._complete_beads):
             self._complete_beads.append(bead)
+            # Comment for martini3_like ###########
+            if self._keep_hydrogens:
+                if bead in self._incomplete_beads:
+                    self._incomplete_beads.remove(bead)
+            #######################################
             return True
         return False
     
@@ -781,6 +797,7 @@ class Mapper():
     
     def compute_invariants(self, selection):
         bond_idcs_from_top, angle_idcs_from_top = True, True
+        atoms_to_reconstruct_idcs = np.unique(self._bead2atom_idcs_instance)[1:]
         try:
             self._bond_idcs = selection.intra_bonds.indices
         except:
@@ -795,6 +812,7 @@ class Mapper():
                 z[np.tril_indices(len(z), k=-1)] = False
                 self._bond_idcs = np.stack(np.nonzero(z)).T
                 bond_idcs_from_top = False
+        self._bond_idcs = self._bond_idcs[np.all(np.isin(self._bond_idcs, atoms_to_reconstruct_idcs), axis=1)]
         try:
             self._angle_idcs = selection.intra_angles.indices
         except:
@@ -804,6 +822,7 @@ class Mapper():
             df3 = df3.dropna().astype(int)
             self._angle_idcs = df3.values
             angle_idcs_from_top = False
+        self._angle_idcs = self._angle_idcs[np.all(np.isin(self._angle_idcs, atoms_to_reconstruct_idcs), axis=1)]
         if not self._keep_hydrogens:
             bond_atoms_are_valid = np.zeros_like(self._bond_idcs, dtype=bool)
             angle_atoms_are_valid = np.zeros_like(self._angle_idcs, dtype=bool)

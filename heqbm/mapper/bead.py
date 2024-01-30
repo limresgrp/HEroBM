@@ -24,6 +24,7 @@ class BeadMappingAtomSettings:
         self._is_cm: bool = False
         self._has_cm: bool = False
 
+        self._has_to_be_reconstructed: bool = False
         self._hierarchy_level: int = 0
         self._hierarchy_name: str = ''
         self._hierarchy_previous_name: str = ''
@@ -48,6 +49,7 @@ class BeadMappingAtomSettings:
                 if result is not None:
                     groups = result.groups()
                     assert len(groups) == 3
+                    self.set_has_to_be_reconstructed()
                     self.set_hierarchy_level(int(groups[0]))
                     if groups[-1] is None:
                         self.set_hierarchy_name(groups[1])
@@ -91,6 +93,10 @@ class BeadMappingAtomSettings:
         return self._has_cm
     
     @property
+    def has_to_be_reconstructed(self):
+        return self._has_to_be_reconstructed
+    
+    @property
     def hierarchy_level(self):
         return self._hierarchy_level
     
@@ -119,6 +125,9 @@ class BeadMappingAtomSettings:
     
     def set_has_cm(self, has_cm: bool = True):
         self._has_cm = has_cm
+    
+    def set_has_to_be_reconstructed(self, has_to_be_reconstructed: bool = True):
+        self._has_to_be_reconstructed = has_to_be_reconstructed
     
     def set_hierarchy_level(self, hierarchy_level: int):
         self._hierarchy_level = hierarchy_level
@@ -150,6 +159,10 @@ class BeadMappingSettings:
         self._atom_settings: List[BeadMappingAtomSettings] = []
         self._bead_levels: set[int] = set()       # keep track of all hierarchy levels in the bead
         self._bead_positions: dict[int, int] = {} # for each hierarchy level, keep track of maximum position value
+    
+    @property
+    def bead_atoms(self):
+        return sum([atom_setting._has_to_be_reconstructed for atom_setting in self._atom_settings])
 
     def add_atom_settings(self, bmas: BeadMappingAtomSettings):
         self._atom_settings.append(bmas)
@@ -255,9 +268,8 @@ class Bead:
     def update(self, atom_name: str, atom: Optional[Atom], _id: int, bmas: BeadMappingAtomSettings):
         self._is_newly_created = False
         assert atom_name in self._eligible_atoms, f"Trying to update bead {self.type} with atom {atom_name} that does not belong to it."
-        self._atom_names.append(atom_name)
-        self._atoms.append(atom)
-        self._atom_idcs.append(_id)
+
+        # All atoms without the '!' flag contribute to the bead position
         weight = 0.
         if bmas.has_cm:
             weight = 1. * bmas.is_cm
@@ -271,14 +283,21 @@ class Bead:
             else:
                 raise Exception(f"{self.weigth_based_on} is not a valid value for 'weigth_based_on'. Use either 'mass' or 'same'")
         weight *= bmas.relative_weight
-        self._atom_weights.append(weight)
-        
-        self._hierarchy_levels.append(bmas.hierarchy_level)
-        self._local_index.append(bmas._local_index)
-        self._local_index_prev.append(bmas._local_index_prev)
+
+        # Only atoms with hierarchy information appear as atoms of the bead.
+        # Atoms without hierarchy information are not reconstructed.
+        if bmas.has_to_be_reconstructed:
+            self._atom_names.append(atom_name)
+            self._atoms.append(atom)
+            self._atom_idcs.append(_id)
+            self._atom_weights.append(weight)
+            
+            self._hierarchy_levels.append(bmas.hierarchy_level)
+            self._local_index.append(bmas._local_index)
+            self._local_index_prev.append(bmas._local_index_prev)
 
         invalid_confs = []
-        atom_mapped = False
+        atom_mapped = not bmas.has_to_be_reconstructed
         for conf_id, _missing_atoms in enumerate(self._missing_atoms_list):
             if atom_name in _missing_atoms:
                 _missing_atoms.remove(atom_name)
@@ -286,7 +305,7 @@ class Bead:
             else:
                 invalid_confs.append(conf_id)
         if not atom_mapped:
-            raise ValueError(f"Trying to update bead {self.type} with atom {atom_name} that does is already mapped in this bead.")
+            raise ValueError(f"Trying to update bead {self.type} with atom {atom_name} that is already mapped in this bead.")
         if any([not [ma for ma in _missing_atoms if self.keep_hydrogens or get_type_from_name(ma) != 1] for _missing_atoms in self._missing_atoms_list]):
             self.complete()
         return invalid_confs

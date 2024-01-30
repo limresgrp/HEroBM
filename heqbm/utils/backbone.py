@@ -178,7 +178,14 @@ class MinimizeEnergy(torch.nn.Module):
         
         return energy_evaluation
 
-    def forward(self, data, t: int, minimize_dih: bool, unlock_ca: bool = False, save_pos_minimisation_traj: bool = False):
+    def forward(
+        self,
+        data, t: int,
+        minimize_dih: bool,
+        unlock_ca: bool = False,
+        lock_ca: bool=False,
+        save_pos_minimisation_traj: bool = False
+    ):
         pos = data["pos"]
         if save_pos_minimisation_traj:
             data[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ].append(pos.cpu().numpy())
@@ -209,7 +216,7 @@ class MinimizeEnergy(torch.nn.Module):
             energy_evaluation["gradient"] = gradient
 
             pos.requires_grad_(False)
-            if unlock_ca:
+            if unlock_ca or not lock_ca:
                 pos += gradient * data["dtau"]
             else:
                 pos[data["movable_pos_idcs"]] += gradient[data["movable_pos_idcs"]] * data["dtau"]
@@ -223,6 +230,7 @@ class MinimizeEnergy(torch.nn.Module):
         eps: float = 1e-3,
         minimize_dih: bool = True,
         unlock_ca: bool = False,
+        lock_ca: bool = False,
         verbose: bool = False,
         trace_every: int = 0,
     ):
@@ -237,6 +245,7 @@ class MinimizeEnergy(torch.nn.Module):
                 t,
                 minimize_dih,
                 unlock_ca,
+                lock_ca,
                 save_pos_minimisation_traj=(trace_every>0)and(not t%trace_every)
             )
             if energy_evaluation is None:

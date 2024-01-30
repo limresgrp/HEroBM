@@ -1,3 +1,4 @@
+import glob
 import os
 import time
 import yaml
@@ -7,15 +8,15 @@ import numpy as np
 import MDAnalysis as mda
 import copy
 
+from os.path import basename
 from e3nn import o3
 from pathlib import Path
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 from itertools import groupby
 
 from heqbm.mapper.hierarchical_mapper import HierarchicalMapper
 from heqbm.backmapping.nn.quaternions import get_quaternions, qv_mult
 from heqbm.utils import DataDict
-from heqbm.utils.atomType import get_type_from_name
 from heqbm.utils.geometry import get_RMSD, get_angles, get_dihedrals
 from heqbm.utils.backbone import cat_interleave, MinimizeEnergy
 from heqbm.utils.plotting import plot_cg
@@ -42,6 +43,9 @@ class HierarchicalBackmapping:
     config: Dict[str, str]
     mapping: HierarchicalMapper
 
+    structure_foldername: Optional[str]
+    structure_format: str
+    structure_filenames: List[str]
     model_config: Dict[str, str]
     model_r_max: float
 
@@ -62,7 +66,17 @@ class HierarchicalBackmapping:
         ### Parse Input ###
         
         self.mapping = HierarchicalMapper(config=self.config)
-        self.mapping.map(self.config, selection=self.config.get("selection", "all"))
+
+        self.root_output_folder = self.config.get("output_folder")
+        self.structure_foldername = self.config.get("structure_foldername", None)
+        self.structure_format = self.config.get("structure_format", "pdb")
+        if self.structure_foldername is not None:
+            self.structure_filenames = list(glob.glob(os.path.join(self.structure_foldername, f"*.{self.structure_format}")))
+        else:
+            structure_filename = self.config.get("structure_filename", None)
+            self.structure_filename = structure_filename
+            assert structure_filename is not None
+            self.structure_filenames = [structure_filename]
 
         ### Load Model ###
 
@@ -117,6 +131,10 @@ class HierarchicalBackmapping:
 
         ### --------------------- ###
     
+    @property
+    def num_structures(self):
+        return len(self.structure_filenames)
+    
     def plot(self, frame_index=0):
         plot_cg(
             dataset=self.mapping.dataset,
@@ -148,7 +166,14 @@ class HierarchicalBackmapping:
             backmapping_dataset[DataDict.BEAD_POSITION][0] += residue_shifts
         return backmapping_dataset, minimizer_data
     
-    def optimize_backbone(self, backmapping_dataset: Dict, minimizer_data: Dict, device: str = 'cpu', verbose: bool = False):
+    def optimize_backbone(
+            self,
+            backmapping_dataset: Dict,
+            minimizer_data: Dict,
+            device: str = 'cpu',
+            verbose: bool = False,
+            lock_ca: bool=False,
+    ):
 
         # Add predicted dihedrals as dihedral equilibrium values
         minimizer_data = update_minimizer_data(
@@ -165,6 +190,7 @@ class HierarchicalBackmapping:
             eps=self.config.get("bb_initial_minimisation_eps", 1e-2),
             trace_every=self.config.get("trace_every", 0),
             minimize_dih=False,
+            lock_ca=lock_ca,
             verbose=verbose,
         )
 
@@ -178,6 +204,7 @@ class HierarchicalBackmapping:
             eps=self.config.get("bb_minimisation_eps", 1e-3),
             trace_every=self.config.get("trace_every", 0),
             minimize_dih=True,
+            lock_ca=lock_ca,
             verbose=verbose,
         )
 
@@ -191,14 +218,32 @@ class HierarchicalBackmapping:
             )[:, real_bb_atom_idcs]
         return backmapping_dataset, minimizer_data
         
+    def map(
+        self,
+        index: int
+    ):
+        if self.structure_foldername is None:
+            self.mapping.map(self.config, selection=self.config.get("selection", "all"))
+        else:
+            self.structure_filename = self.structure_filenames[index]
+            self.config["structure_filename"] = self.structure_filename
+            self.config["traj_filenames"] = []
+            self.config["output_folder"] = os.path.join(self.root_output_folder, '.'.join(basename(self.structure_filename).split('.')[:-1]))
+            if os.path.isdir(self.config["output_folder"]):
+                return False
+            print(f"Mapping structure {self.structure_filename}")
+            self.mapping.map(self.config, selection=self.config.get("selection", "all"))
+        return True
+    
     def backmap(
         self,
         frame_index: int,
         device: str = 'cpu',
         verbose: bool = False,
         optimize_backbone: Optional[bool] = None,
+        lock_ca: bool = False,
     ):
-        
+        print(f"Backmapping structure {self.structure_filename}")
         backmapping_dataset = self.mapping.dataset
         for k in [
             DataDict.ATOM_POSITION,
@@ -242,7 +287,7 @@ class HierarchicalBackmapping:
 
         if DataDict.BEAD2ATOM_RELATIVE_VECTORS in backmapping_dataset:
             bb_fltr = np.array([x.split('_')[1] in ['BB'] for x in backmapping_dataset[DataDict.BEAD_NAMES]])
-            b2a_rev_vec = backmapping_dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS][0].copy()
+            b2a_rev_vec = backmapping_dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS].copy()
 
             try:
                 print(
@@ -250,7 +295,7 @@ class HierarchicalBackmapping:
                     get_RMSD(backmapping_dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED], b2a_rev_vec, ignore_zeroes=True)
                 )
 
-                b2a_rev_vec[bb_fltr] = 0. # We are not interested in b2a_rev_vec of backbone
+                b2a_rev_vec[:, bb_fltr] = 0. # We are not interested in b2a_rev_vec of backbone
 
                 print(
                     "RMSD on side-chain b2a relative vectors:", 
@@ -267,6 +312,7 @@ class HierarchicalBackmapping:
             backmapping_dataset, minimizer_data = self.optimize_backbone(
                 backmapping_dataset=backmapping_dataset,
                 minimizer_data=minimizer_data,
+                lock_ca=lock_ca,
                 device=device,
                 verbose=verbose,
             )
@@ -274,15 +320,6 @@ class HierarchicalBackmapping:
         # Backmap side chains & ligands
         # if DataDict.ATOM_POSITION_PRED not in backmapping_dataset:
         #     backmapping_dataset = self.backmap_scl(backmapping_dataset=backmapping_dataset)
-        
-        if DataDict.ATOM_POSITION in backmapping_dataset:
-            try:
-                no_bb_fltr = np.array([an.split('_')[1] not in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
-                print(f"RMSD on Side-Chains: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=no_bb_fltr):4.3f} Angstrom")
-                bb_fltr = np.array([an.split('_')[1] in ["CA", "C", "N" "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
-                print(f"RMSD on Backbone: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=bb_fltr):4.3f} Angstrom")
-            except:
-                pass
 
         if optimize_backbone:
             n_atom_idcs = minimizer_data["n_atom_idcs"].cpu().numpy()
@@ -301,7 +338,17 @@ class HierarchicalBackmapping:
                 backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ][:, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]
                 backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset, position_key=DataDict.ATOM_POSITION_MINIMISATION_TRAJ)
 
-            print(f"Finished. Time: {time.time() - t}")
+        if DataDict.ATOM_POSITION in backmapping_dataset:
+            try:
+                print(f"RMSD All: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], ignore_nan=True):4.3f} Angstrom")
+                no_bb_fltr = np.array([an.split('_')[1] not in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
+                print(f"RMSD on Side-Chains: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=no_bb_fltr, ignore_nan=True):4.3f} Angstrom")
+                bb_fltr = np.array([an.split('_')[1] in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
+                print(f"RMSD on Backbone: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=bb_fltr, ignore_nan=True):4.3f} Angstrom")
+            except:
+                pass
+        
+        print(f"Finished. Time: {time.time() - t}")
         
         return backmapping_dataset
     
@@ -394,8 +441,9 @@ class HierarchicalBackmapping:
         positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0]
         if atom_filter is not None:
             positions_pred = positions_pred[atom_filter]
-        positions_pred = np.nan_to_num(positions_pred, nan=0.)
-        backmapped_sel.positions = positions_pred[residue_idcs_filter]
+        # positions_pred = np.nan_to_num(positions_pred, nan=0.)
+        # positions_pred = positions_pred[residue_idcs_filter]
+        backmapped_sel.positions = positions_pred[~np.any(np.isnan(positions_pred), axis=-1)]
 
         backmapped_filename = os.path.join(folder, f"backmapped_{frame_index}.pdb") 
         backmapped_sel.write(backmapped_filename)
@@ -434,6 +482,7 @@ def build_CG(
     box_dimensions,
 ) -> mda.Universe:
     bead_resindex = backmapping_dataset[DataDict.BEAD_RESIDCS]
+    bead_resindex -= np.min(bead_resindex)
     n_atoms = len(backmapping_dataset[DataDict.BEAD_POSITION][0])
     n_residues = len(np.unique(bead_resindex))
     atom_resindex = np.bincount(bead_resindex)
@@ -483,12 +532,16 @@ def build_universe(
     atomnames,
     residue_idcs_filter
 ):
-    
+    pos = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0]
+    nan_filter = ~np.any(np.isnan(pos), axis=-1)
+    pos = pos[nan_filter]
+    atom_resindex = atom_resindex[nan_filter]
     if atom_filter is None:
         atom_filter = np.array([True for _ in atomnames])
-    atom_filter = atom_filter[residue_idcs_filter]
+    # atom_filter = atom_filter[residue_idcs_filter]
+    atom_filter = atom_filter[nan_filter]
 
-    n_atoms = len(backmapping_dataset[DataDict.ATOM_POSITION_PRED][0][atom_filter])
+    n_atoms = len(pos[atom_filter])
     backmapped_u = mda.Universe.empty(
         n_atoms,
         n_residues=len(np.unique(atom_resindex)),
@@ -504,11 +557,11 @@ def build_universe(
     backmapped_u.load_new(coordinates, order='fac')
 
     backmapped_u.dimensions = box_dimensions
-    backmapped_u.add_TopologyAttr('name', atomnames[residue_idcs_filter][atom_filter].tolist())
-    backmapped_u.add_TopologyAttr('type', np.array([get_type_from_name(an) for an in backmapping_dataset[DataDict.ATOM_NAMES][residue_idcs_filter]])[atom_filter])
+    backmapped_u.add_TopologyAttr('name', atomnames[nan_filter][atom_filter].tolist()) # [residue_idcs_filter]
+    backmapped_u.add_TopologyAttr('type', np.array([an.split(DataDict.STR_SEPARATOR)[-1] for an in atomnames[nan_filter]])[atom_filter]) # [residue_idcs_filter]
     backmapped_u.add_TopologyAttr('resname', resnames)
     backmapped_u.add_TopologyAttr('resid', np.unique(atom_resindex)+1)
-    backmapped_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.ATOM_CHAINIDCS][atom_filter])
+    backmapped_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.ATOM_CHAINIDCS][nan_filter][atom_filter])
 
     return backmapped_u
 
@@ -606,7 +659,7 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
         DataDict.LEVEL_IDCS_MASK: lvl_idcs_mask,
         f"{DataDict.LEVEL_IDCS_MASK}_slices": torch.tensor([0, len(lvl_idcs_mask)]),
         DataDict.LEVEL_IDCS_ANCHOR_MASK: lvl_idcs_anchor_mask,
-        f"{DataDict.ATOM_POSITION}_slices": torch.tensor([0, bead2atom_idcs.max().item()+1])
+        f"{DataDict.ATOM_POSITION}_slices": torch.tensor([0, dataset[DataDict.ATOM_POSITION].shape[1]])
     }
 
     for v in data.values():
@@ -720,7 +773,7 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
                 reconstructed_atom_pos = reconstructed_atom_pos.cpu().numpy()
 
         if already_computed_nodes is None:
-            dataset[DataDict.BB_PHIPSI_PRED] = np.zeros((1, lvl_idcs_mask.shape[1], 2), dtype=float)
+            dataset[DataDict.BB_PHIPSI_PRED] = np.zeros((1, lvl_idcs_mask.shape[1], predicted_dih.shape[1]), dtype=float)
             dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED] = np.zeros((1, lvl_idcs_mask.shape[1], lvl_idcs_mask.shape[2], 3), dtype=float)
             if reconstructed_atom_pos is not None:
                 dataset[DataDict.ATOM_POSITION_PRED] = reconstructed_atom_pos[None, ...]
@@ -790,7 +843,7 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
         if resid == next_resid - 1 and chainidcs[id_] == chainidcs[id_+1]:
             bond_idcs.append([atom_id+1, atom_id+4])
             bond_eq_val.append(3.81) # CA - CA bond length
-            bond_tolerance.append(0.05) # Permissible values [1.76, 1.86]
+            bond_tolerance.append(0.1) # Permissible values [1.71, 1.91]
             ca_bond_idcs.append([atom_id+1, atom_id+4])
             ca_bond_eq_val.append(3.81) # CA - CA bond length
             ca_bond_tolerance.append(0.03) # Permissible values [1.78, 1.84]

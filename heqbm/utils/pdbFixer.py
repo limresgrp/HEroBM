@@ -26,7 +26,10 @@ def fixPDB(
     fixer.findMissingAtoms()
     fixer.addMissingAtoms()
     if addHydrogens:
-        fixer.addMissingHydrogens(7.0, forcefield=forcefield)
+        try:
+            fixer.addMissingHydrogens(7.0, forcefield=forcefield)
+        except Exception as e:
+            print("Could not add Hydrogens.", e)
     # maxSize = max(max((pos[i] for pos in fixer.positions))-min((pos[i] for pos in fixer.positions)) for i in range(3))
     # boxSize = maxSize*Vec3(1, 1, 1)
     # fixer.addSolvent(boxSize)
