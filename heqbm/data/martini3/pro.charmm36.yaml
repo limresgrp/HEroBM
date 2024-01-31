@@ -1,11 +1,11 @@
 molecule: PRO
 
 atoms:
-  N:   BB   P1A
+  N:   BB   P2AA
   CD:  SC1  P1C
   HD1: SC1  !
   HD2: SC1  !
-  CA:  BB   P1C
+  CA:  BB   P1A
   HA:  BB   !
   CB:  SC1  P1A
   HB1: SC1  !
@@ -14,4 +14,4 @@ atoms:
   HG1: SC1  !
   HG2: SC1  !
   C:   BB   P1B
-  O:   BB   P2BA
+  O:   BB   P2BB

@@ -1,9 +1,9 @@
 molecule: TRP
 
 atoms:
-  N:   BB   P1A
+  N:   BB   P2AA
   H:   BB
-  CA:  BB   P1C
+  CA:  BB   P1A
   HA:  BB   !
   CB:  SC1  P1A
   HB2: SC1  !
@@ -24,4 +24,4 @@ atoms:
   CH2: SC5  P1B
   HH2: SC5
   C:   BB   P1B
-  O:   BB   P2BA
+  O:   BB   P2BB

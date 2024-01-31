@@ -1,9 +1,9 @@
 molecule: PHE
 
 atoms:
-  N:    BB   P1AA
+  N:    BB   P2AA
   HN:   BB
-  CA:   BB   P0A
+  CA:   BB   P1A
   HA:   BB   !
   CB:   SC1  P2AA
   HB1:  SC1
@@ -19,5 +19,5 @@ atoms:
   HD2:  SC1,SC3  1/3,2/3
   CE2:  SC3  P1A
   HE2:  SC3
-  C:    BB   P1AB
-  O:    BB   P2BA
+  C:    BB   P1B
+  O:    BB   P2BB

@@ -1,9 +1,9 @@
 molecule: ILE
 
 atoms:
-  N:    BB   P1A
+  N:    BB   P2AA
   H:    BB
-  CA:   BB   P1C
+  CA:   BB   P1A
   HA:   BB   !
   CB:   SC1  P1A
   HB:   SC1
@@ -19,4 +19,4 @@ atoms:
   HD12: SC1  !
   HD13: SC1  !
   C:    BB   P1B
-  O:    BB   P2BA
+  O:    BB   P2BB

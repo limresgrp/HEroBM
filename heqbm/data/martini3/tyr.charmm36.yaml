@@ -1,9 +1,9 @@
 molecule: TYR
 
 atoms:
-  N:   BB   P1A
+  N:   BB   P2AA
   HN:  BB
-  CA:  BB   P1C
+  CA:  BB   P1A
   HA:  BB   !
   CB:  SC1  P1A
   HB1: SC1  !
@@ -21,4 +21,4 @@ atoms:
   CE2: SC3  P1B
   HE2: SC3
   C:   BB   P1B
-  O:   BB   P2BA
+  O:   BB   P2BB

@@ -1,10 +1,10 @@
 molecule: GLY
 
 atoms:
-  N:   BB  P1A
+  N:   BB  P2AA
   H:   BB
-  CA:  BB  P1C
+  CA:  BB  P1A
   HA2: BB  !
   HA3: BB  !
   C:   BB  P1B
-  O:   BB  P2BA
+  O:   BB  P2BB

@@ -1,9 +1,9 @@
 molecule: THR
 
 atoms:
-  N:    BB   P1A
+  N:    BB   P2AA
   HN:   BB
-  CA:   BB   P1C
+  CA:   BB   P1A
   HA:   BB   !
   CB:   SC1  P1A
   HB:   SC1  !
@@ -14,4 +14,4 @@ atoms:
   HG22: SC1  !
   HG23: SC1  !
   C:    BB   P1B
-  O:    BB   P2BA
+  O:    BB   P2BB

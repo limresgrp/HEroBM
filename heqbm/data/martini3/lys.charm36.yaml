@@ -1,25 +1,25 @@
 molecule: LYS
 
 atoms:
-  N:    BB   P1AA
+  N:    BB   P2AA
   HN:   BB
-  CA:   BB   P0A CM
-  HA:   BB
+  CA:   BB   P1A
+  HA:   BB   !
   CB:   SC1  P1A
-  HB1:  SC1
-  HB2:  SC1
+  HB1:  SC1  !
+  HB2:  SC1  !
   CG:   SC1  P1B
-  HG1:  SC1
-  HG2:  SC1
+  HG1:  SC1  !
+  HG2:  SC1  !
   CD:   SC1  P1C
   HD1:  SC1
   HD2:  SC1
   CE:   SC2  P1A
-  HE1:  SC2
-  HE2:  SC2
+  HE1:  SC2  !
+  HE2:  SC2  !
   NZ:   SC2  P1B
   HZ1:  SC2
   HZ2:  SC2
   HZ3:  SC2
   C:    BB   P1AB
-  O:    BB   P2BA
+  O:    BB   P2BB

@@ -1,9 +1,0 @@
-molecule: NME
-
-atoms:
-  N:    RE  P1A
-  HN:   RE
-  CH3:  RE  P1B  
-  HH31: RE  !
-  HH32: RE  !
-  HH33: RE  !

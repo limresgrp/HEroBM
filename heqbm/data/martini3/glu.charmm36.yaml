@@ -1,9 +1,9 @@
 molecule: GLU
 
 atoms:
-  N:   BB   P1A
+  N:   BB   P2AA
   HN:  BB
-  CA:  BB   P1C
+  CA:  BB   P1A
   HA:  BB   !
   CB:  SC1  P3AA
   HB1: SC1  !
@@ -16,4 +16,4 @@ atoms:
   OE2: SC1  P2AC
   HE2: SC1  !
   C:   BB   P1B
-  O:   BB   P2BA
+  O:   BB   P2BB

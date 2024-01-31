@@ -1,9 +1,9 @@
 molecule: MET
 
 atoms:
-  N:    BB   P1A
+  N:    BB   P2AA
   HN:   BB
-  CA:   BB   P1C
+  CA:   BB   P1A
   HA:   BB   !
   CB:   SC1  P1A
   HB1:  SC1  !
@@ -17,4 +17,4 @@ atoms:
   HE2:  SC1  !
   HE3:  SC1  !
   C:    BB   P1B
-  O:    BB   P2BA
+  O:    BB   P2BB
