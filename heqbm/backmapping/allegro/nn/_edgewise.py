@@ -26,6 +26,7 @@ class EdgewiseEnergySum(GraphModuleMixin, torch.nn.Module):
         out_field: str = AtomicDataDict.PER_ATOM_ENERGY_KEY,
         avg_num_neighbors: Optional[float] = None,
         normalize_edge_energy_sum: bool = True,
+        average_pooling: bool = False,
         # per_edge_species_scale: Optional[float] = None,
         irreps_in={},
     ):
@@ -43,6 +44,8 @@ class EdgewiseEnergySum(GraphModuleMixin, torch.nn.Module):
         self._factor = None
         if normalize_edge_energy_sum and avg_num_neighbors is not None:
             self._factor = 1.0 / math.sqrt(avg_num_neighbors)
+        
+        self.average_pooling: bool = average_pooling
 
         # self.per_edge_species_scale = per_edge_species_scale
         # if self.per_edge_species_scale is not None:
@@ -64,7 +67,9 @@ class EdgewiseEnergySum(GraphModuleMixin, torch.nn.Module):
         #         center_species, neighbor_species
         #     ].reshape(-1, *[1 for _ in range(len(edge_eng.shape)-1)])
 
-        atom_eng = scatter(edge_eng, edge_center, dim=0, dim_size=len(species)) # / torch.bincount(edge_center, minlength=len(species)).unsqueeze(1)
+        atom_eng = scatter(edge_eng, edge_center, dim=0, dim_size=len(species))
+        if self.average_pooling:
+            atom_eng /= torch.bincount(edge_center, minlength=len(species)).unsqueeze(1)
         factor: Optional[float] = self._factor  # torchscript hack for typing
         if factor is not None:
             atom_eng = atom_eng * factor

@@ -156,7 +156,7 @@ class HierarchicalBackmapping:
                 data=minimizer_data,
                 dtau=self.config.get("bb_minimisation_dtau", 1e-1),
                 eps=self.config.get("bb_minimisation_eps_initial", 1e-2),
-                minimize_dih=False,
+                minimise_dih=False,
                 unlock_ca=True,
                 verbose=verbose,
             )
@@ -173,6 +173,7 @@ class HierarchicalBackmapping:
             device: str = 'cpu',
             verbose: bool = False,
             lock_ca: bool=False,
+            minimise_dih: bool = False,
     ):
 
         # Add predicted dihedrals as dihedral equilibrium values
@@ -189,24 +190,25 @@ class HierarchicalBackmapping:
             dtau=self.config.get("bb_minimisation_dtau", 1e-1),
             eps=self.config.get("bb_initial_minimisation_eps", 1e-2),
             trace_every=self.config.get("trace_every", 0),
-            minimize_dih=False,
+            minimise_dih=False,
             lock_ca=lock_ca,
             verbose=verbose,
         )
 
-        # Step 2: rotate N and C atoms around the CA-CA axis to find global minimum basin
-        minimizer_data = self.rotate_dihedrals_to_minimize_energy(minimizer_data=minimizer_data, dataset=backmapping_dataset)
-        
-        # Step 3: final minimization: find global minimum
-        self.minimizer.minimise(
-            data=minimizer_data,
-            dtau=self.config.get("bb_minimisation_dtau", 1e-1),
-            eps=self.config.get("bb_minimisation_eps", 1e-3),
-            trace_every=self.config.get("trace_every", 0),
-            minimize_dih=True,
-            lock_ca=lock_ca,
-            verbose=verbose,
-        )
+        if minimise_dih:
+            # Step 2: rotate N and C atoms around the CA-CA axis to find global minimum basin
+            minimizer_data = self.rotate_dihedrals_to_minimize_energy(minimizer_data=minimizer_data, dataset=backmapping_dataset)
+            
+            # Step 3: final minimization: find global minimum
+            self.minimizer.minimise(
+                data=minimizer_data,
+                dtau=self.config.get("bb_minimisation_dtau", 1e-1),
+                eps=self.config.get("bb_minimisation_eps", 1e-3),
+                trace_every=self.config.get("trace_every", 0),
+                minimise_dih=True,
+                lock_ca=lock_ca,
+                verbose=verbose,
+            )
 
         pos = minimizer_data["pos"].detach().cpu().numpy()
         real_bb_atom_idcs = minimizer_data["real_bb_atom_idcs"].detach().cpu().numpy()
@@ -229,8 +231,8 @@ class HierarchicalBackmapping:
             self.config["structure_filename"] = self.structure_filename
             self.config["traj_filenames"] = []
             self.config["output_folder"] = os.path.join(self.root_output_folder, '.'.join(basename(self.structure_filename).split('.')[:-1]))
-            if os.path.isdir(self.config["output_folder"]):
-                return False
+            # if os.path.isdir(self.config["output_folder"]):
+            #     return False
             print(f"Mapping structure {self.structure_filename}")
             self.mapping.map(self.config, selection=self.config.get("selection", "all"))
         return True
@@ -242,6 +244,7 @@ class HierarchicalBackmapping:
         verbose: bool = False,
         optimize_backbone: Optional[bool] = None,
         lock_ca: bool = False,
+        minimise_dih: bool = False,
     ):
         print(f"Backmapping structure {self.structure_filename}")
         backmapping_dataset = self.mapping.dataset
@@ -313,6 +316,7 @@ class HierarchicalBackmapping:
                 backmapping_dataset=backmapping_dataset,
                 minimizer_data=minimizer_data,
                 lock_ca=lock_ca,
+                minimise_dih=minimise_dih,
                 device=device,
                 verbose=verbose,
             )
@@ -327,16 +331,17 @@ class HierarchicalBackmapping:
             c_atom_idcs = minimizer_data["c_atom_idcs"].cpu().numpy()
             
             backmapping_dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED]
-            backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset)
+            if minimise_dih:
+                backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset)
 
-            if DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ in backmapping_dataset:
-                backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ] = np.repeat(
-                    backmapping_dataset[DataDict.ATOM_POSITION_PRED],
-                    len(backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]),
-                    axis=0
-                )
-                backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ][:, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]
-                backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset, position_key=DataDict.ATOM_POSITION_MINIMISATION_TRAJ)
+                if DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ in backmapping_dataset:
+                    backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ] = np.repeat(
+                        backmapping_dataset[DataDict.ATOM_POSITION_PRED],
+                        len(backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]),
+                        axis=0
+                    )
+                    backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ][:, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]
+                    backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset, position_key=DataDict.ATOM_POSITION_MINIMISATION_TRAJ)
 
         if DataDict.ATOM_POSITION in backmapping_dataset:
             try:
@@ -771,6 +776,12 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
             reconstructed_atom_pos = out.get(ATOM_POSITIONS, None)
             if reconstructed_atom_pos is not None:
                 reconstructed_atom_pos = reconstructed_atom_pos.cpu().numpy()
+        # out = model(batch_)
+        # predicted_dih = out.get(INVARIANT_ATOM_FEATURES).detach().cpu().numpy()
+        # predicted_b2a_rel_vec = out.get(EQUIVARIANT_ATOM_FEATURES).detach().cpu().numpy()
+        # reconstructed_atom_pos = out.get(ATOM_POSITIONS, None)
+        # if reconstructed_atom_pos is not None:
+        #     reconstructed_atom_pos = reconstructed_atom_pos.detach().cpu().numpy()
 
         if already_computed_nodes is None:
             dataset[DataDict.BB_PHIPSI_PRED] = np.zeros((1, lvl_idcs_mask.shape[1], predicted_dih.shape[1]), dtype=float)
@@ -969,38 +980,41 @@ def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads
         ],
     )
 
-    dih = dataset[DataDict.BB_PHIPSI_PRED][0]
-    if not use_only_bb_beads:
-        dih = dih[dataset[DataDict.CA_BEAD_IDCS]]
-    
-    dih_idcs = []
-    dih_eq_val = []
-    chainidcs = dataset[DataDict.BEAD_CHAINIDCS]
-    for id_, dih_val in zip(range(0, len(dih)), dih):
-        atom_id = id_ * 3 # start from N atom of id_ residue (N1 CA1 C1 N2 CA2 C2 ...)
-        if id_ > 0 and chainidcs[id_-1] == chainidcs[id_]:
-            # Phi
-            dih_idcs.append([atom_id-1, atom_id, atom_id+1, atom_id+2])
-            dih_eq_val.append(dih_val[0])
-        if id_ < len(dih)-1 and chainidcs[id_] == chainidcs[id_+1]:
-            # Psi
-            dih_idcs.append([atom_id, atom_id+1, atom_id+2, atom_id+3])
-            dih_eq_val.append(dih_val[1])
-            # Peptide bond
-            dih_idcs.append([atom_id+1, atom_id+2, atom_id+3, atom_id+4])
-            dih_eq_val.append(np.pi)
-    dih_idcs = np.array(dih_idcs)
-    dih_eq_val = np.array(dih_eq_val)
-
     data = {
         "pos": atom_pos_pred,
-        "dih_idcs": dih_idcs,
-        "dih_eq_val": dih_eq_val,
         "atom_names": atom_names,
         "n_atom_idcs": n_atom_idcs,
         "c_atom_idcs": c_atom_idcs,
         "real_bb_atom_idcs": real_bb_atom_idcs,
     }
+
+    if DataDict.BB_PHIPSI_PRED in dataset and dataset[DataDict.BB_PHIPSI_PRED].shape[-1] == 2:
+        dih = dataset[DataDict.BB_PHIPSI_PRED][0]
+        if not use_only_bb_beads:
+            dih = dih[dataset[DataDict.CA_BEAD_IDCS]]
+        
+        dih_idcs = []
+        dih_eq_val = []
+        chainidcs = dataset[DataDict.BEAD_CHAINIDCS]
+        for id_, dih_val in zip(range(0, len(dih)), dih):
+            atom_id = id_ * 3 # start from N atom of id_ residue (N1 CA1 C1 N2 CA2 C2 ...)
+            if id_ > 0 and chainidcs[id_-1] == chainidcs[id_]:
+                # Phi
+                dih_idcs.append([atom_id-1, atom_id, atom_id+1, atom_id+2])
+                dih_eq_val.append(dih_val[0])
+            if id_ < len(dih)-1 and chainidcs[id_] == chainidcs[id_+1]:
+                # Psi
+                dih_idcs.append([atom_id, atom_id+1, atom_id+2, atom_id+3])
+                dih_eq_val.append(dih_val[1])
+                # Peptide bond
+                dih_idcs.append([atom_id+1, atom_id+2, atom_id+3, atom_id+4])
+                dih_eq_val.append(np.pi)
+        dih_idcs = np.array(dih_idcs)
+        dih_eq_val = np.array(dih_eq_val)
+        data.update({
+            "dih_idcs": dih_idcs,
+            "dih_eq_val": dih_eq_val,
+        })
 
     for k, v in data.items():
         if v.dtype.type is not np.str_:

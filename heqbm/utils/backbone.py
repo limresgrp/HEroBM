@@ -161,7 +161,7 @@ class MinimizeEnergy(torch.nn.Module):
         dihedral_energy = torch.mean(2 + torch.cos(dih_val - dih_eq_val - np.pi) + torch.sin(dih_val - dih_eq_val - np.pi/2))
         return dihedral_energy
     
-    def evaluate_energy(self, data, t: int, minimize_dih: bool):
+    def evaluate_energy(self, data, t: int, minimise_dih: bool):
         bond_energy = self.evaluate_bond_energy(data, t=t)
         angle_energy = self.evaluate_angle_energy(data, t=t)
 
@@ -171,7 +171,7 @@ class MinimizeEnergy(torch.nn.Module):
             "angle_energy": angle_energy,
         }
 
-        if minimize_dih:
+        if minimise_dih:
             dihedral_energy = self.evaluate_dihedral_energy(data, t=t)
             energy_evaluation["dihedral_energy"] = dihedral_energy
             energy_evaluation["total_energy"] = energy_evaluation["total_energy"] + dihedral_energy
@@ -181,7 +181,7 @@ class MinimizeEnergy(torch.nn.Module):
     def forward(
         self,
         data, t: int,
-        minimize_dih: bool,
+        minimise_dih: bool,
         unlock_ca: bool = False,
         lock_ca: bool=False,
         save_pos_minimisation_traj: bool = False
@@ -199,7 +199,7 @@ class MinimizeEnergy(torch.nn.Module):
                 "bond_energy": ca_bond_energy,
             }
         else:
-            energy_evaluation = self.evaluate_energy(data, t=t, minimize_dih=minimize_dih)
+            energy_evaluation = self.evaluate_energy(data, t=t, minimise_dih=minimise_dih)
         
         gradient = torch.autograd.grad(
             [energy_evaluation.get("total_energy")],
@@ -228,7 +228,7 @@ class MinimizeEnergy(torch.nn.Module):
         data,
         dtau=None,
         eps: float = 1e-3,
-        minimize_dih: bool = True,
+        minimise_dih: bool = True,
         unlock_ca: bool = False,
         lock_ca: bool = False,
         verbose: bool = False,
@@ -243,7 +243,7 @@ class MinimizeEnergy(torch.nn.Module):
             data, energy_evaluation = self(
                 data,
                 t,
-                minimize_dih,
+                minimise_dih,
                 unlock_ca,
                 lock_ca,
                 save_pos_minimisation_traj=(trace_every>0)and(not t%trace_every)

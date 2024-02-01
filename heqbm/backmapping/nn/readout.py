@@ -5,6 +5,8 @@ from nequip.data import AtomicDataDict
 from nequip.nn import GraphModuleMixin
 from heqbm.backmapping.allegro.nn._strided import Linear
 from heqbm.backmapping.allegro.nn._fc import ScalarMLPFunction
+from heqbm.utils import DataDict
+from heqbm.backmapping.allegro._keys import (EQUIVARIANT_ATOM_LENGTH_FEATURES)
 
 
 @compile_mode("script")
@@ -40,25 +42,26 @@ class HierarchicalBackmappingReadoutModule(GraphModuleMixin, torch.nn.Module):
                 },
         )
 
-        self.final_readout = latent(
-            mlp_input_dimension=irreps_in[inv_field].dim,
-            mlp_latent_dimensions=[512, 512],
-            mlp_output_dimension=self.inv_out_irreps.dim,
-        )
+        if self.readout_features:
+            self.final_readout = latent(
+                mlp_input_dimension=irreps_in[inv_field].dim,
+                mlp_latent_dimensions=[512, 512],
+                mlp_output_dimension=self.inv_out_irreps.dim,
+            )
 
-        self.final_linear = Linear(
-            irreps_in[eq_field],
-            self.eq_out_irreps,
-            shared_weights=False,
-            internal_weights=False,
-            pad_to_alignment=1,
-        )
+            self.final_linear = Linear(
+                irreps_in[eq_field],
+                self.eq_out_irreps,
+                shared_weights=False,
+                internal_weights=False,
+                pad_to_alignment=1,
+            )
 
-        self.final_latent = latent(
-            mlp_input_dimension=irreps_in[inv_field].dim,
-            mlp_latent_dimensions=[512, 512],
-            mlp_output_dimension=self.final_linear.weight_numel,
-        )
+            self.final_latent = latent(
+                mlp_input_dimension=irreps_in[inv_field].dim,
+                mlp_latent_dimensions=[512, 512],
+                mlp_output_dimension=self.final_linear.weight_numel,
+            )
 
         self.irreps_out.update(
             {
@@ -84,7 +87,20 @@ class HierarchicalBackmappingReadoutModule(GraphModuleMixin, torch.nn.Module):
             norm = torch.norm(eq_features, dim=-1, keepdim=True)
             eq_features = eq_features / (norm * (1 + torch.exp(-10*norm)))
             eq_features = torch.nan_to_num(eq_features, nan=0.)
-            eq_features = eq_features * self.atom_type2bond_lengths[data[AtomicDataDict.ATOM_TYPE_KEY].squeeze(-1)]
+
+            if EQUIVARIANT_ATOM_LENGTH_FEATURES in data:
+                eq_features = eq_features * torch.abs(data[EQUIVARIANT_ATOM_LENGTH_FEATURES])[..., None]
+            else:
+                eq_features = eq_features * self.atom_type2bond_lengths[data[AtomicDataDict.ATOM_TYPE_KEY].squeeze(-1)]
+
+        # if self.normalize_out_features:
+        #     to_normalize_filter = ~data[DataDict.LEVEL_IDCS_MASK][1, data[AtomicDataDict.EDGE_INDEX_KEY].unique()] # Exclude hierarchy 1 from normalisation
+        #     with torch.no_grad():
+        #         norm = torch.norm(eq_features, dim=-1, keepdim=True)
+        #         norm_vector = torch.ones_like(eq_features)
+        #         norm_vector[to_normalize_filter] /= norm[to_normalize_filter] * (1 + 1e-10)
+            
+        #     eq_features = eq_features * norm_vector * self.atom_type2bond_lengths[data[AtomicDataDict.ATOM_TYPE_KEY].squeeze(-1)]
 
         data[self.eq_field] = eq_features.squeeze(-2)
         return data
