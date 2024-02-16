@@ -59,7 +59,7 @@ class HierarchicalMapper(Mapper):
         self.bead2atom_relative_vectors_list = []
     
     def update_extra_pos_impl(self, pos, bead_pos):
-        frame_bead2atom_relative_vectors = np.zeros((self.n_beads_instance, self._max_bead_atoms, 3), dtype=float)
+        frame_bead2atom_relative_vectors = np.zeros((self.num_beads, self._max_bead_atoms, 3), dtype=float)
         anchor_pos = pos[self._level_idcs_anchor_mask.max(axis=0)]
         anchor_pos[self._level_idcs_anchor_mask[2:].max(axis=0) == -1] = np.repeat(bead_pos, np.sum(self._level_idcs_anchor_mask[2:].max(axis=0) == -1, axis=-1), axis=0)
         frame_bead2atom_relative_vectors[self.bead2atom_idcs_mask_instance] = pos[self.bead2atom_idcs_instance[self.bead2atom_idcs_mask_instance]] - anchor_pos[self.bead2atom_idcs_mask_instance]
@@ -69,8 +69,8 @@ class HierarchicalMapper(Mapper):
         self._bead2atom_relative_vectors = np.stack(self.bead2atom_relative_vectors_list, axis=0)
     
     def compute_extra_map_impl(self):
-        self._level_idcs_mask = np.zeros((self._max_bead_atoms + 1, self.n_beads_instance, self._max_bead_atoms), dtype=bool)
-        self._level_idcs_anchor_mask = -np.ones((self._max_bead_atoms + 1, self.n_beads_instance, self._max_bead_atoms), dtype=int)
+        self._level_idcs_mask = np.zeros((self._max_bead_atoms + 1, self.num_beads, self._max_bead_atoms), dtype=bool)
+        self._level_idcs_anchor_mask = -np.ones((self._max_bead_atoms + 1, self.num_beads, self._max_bead_atoms), dtype=int)
 
         for i, bead in enumerate(self._ordered_beads):
             li = np.array(bead._local_index)

@@ -4,7 +4,7 @@ from .._keys import *  # noqa: F403, F401
 # https://github.com/pytorch/pytorch/issues/52312
 from .. import _keys
 
-RESNAMES = [
+PROTEIN_RESNAMES = [
     'ALA', 'GLY', 'ARG', 'ASN', 'ASP', 'GLN', 'GLU', 'HIE',
     'HID', 'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'SER', 'CYS',
     'TRP', 'TYR', 'GLN', 'PHE', 'PRO', 'THR', 'VAL',

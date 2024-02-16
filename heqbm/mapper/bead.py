@@ -11,12 +11,9 @@ UNSET_V_VALUE = -1
 
 class BeadMappingAtomSettings:
 
-    def __init__(self, bead_settings, bead_name, atom_name, num_shared_beads: int) -> None:
-        self.bead_name = bead_name
-        self.atom_name = atom_name
-
-        self.bead_name: str
-        self.atom_name: str
+    def __init__(self, bead_settings, bead_name, atom_idname, num_shared_beads: int) -> None:
+        self.bead_name: str = bead_name
+        self.atom_idname: str = atom_idname
 
         self._num_shared_beads: int = num_shared_beads
 
@@ -163,6 +160,10 @@ class BeadMappingSettings:
     @property
     def bead_atoms(self):
         return sum([atom_setting._has_to_be_reconstructed for atom_setting in self._atom_settings])
+    
+    @property
+    def bead_cm_atoms(self):
+        return len(self._atom_settings)
 
     def add_atom_settings(self, bmas: BeadMappingAtomSettings):
         self._atom_settings.append(bmas)
@@ -207,9 +208,9 @@ class BeadMappingSettings:
     def get_bmas_local_index_prev(self, bmas: BeadMappingAtomSettings):
         return self.get_hierarchy_level_offset(bmas.hierarchy_level - 1) + bmas.hierarchy_prev_position
     
-    def get_bmas_by_atom_name(self, atom_name: str):
+    def get_bmas_by_atom_idname(self, atom_idname: str):
         for bmas in self._atom_settings:
-            if bmas.atom_name == atom_name:
+            if bmas.atom_idname == atom_idname:
                 return bmas
         return None
 
@@ -225,6 +226,13 @@ class Bead:
             f"Bead of type {self.type} has a mismatch between the number of _atoms ({len(self._atoms)})" \
             f"and the number of _atom_idcs ({self._atom_idcs})"
         return len(self._atoms)
+    
+    @property
+    def n_cm_atoms(self):
+        assert len(self._atom_weights) == len(self._atom_cm_idcs), \
+            f"Bead of type {self.type} has a mismatch between the number of _weights ({len(self._atom_weights)})" \
+            f"and the number of _atom_cm_idcs ({self._atom_cm_idcs})"
+        return len(self._atom_cm_idcs)
     
     @property
     def is_newly_created(self):
@@ -252,9 +260,11 @@ class Bead:
         self._missing_atoms_list: List[List[str]] = atoms
         self._config_ordered_atoms: List[List[str]] = copy.deepcopy(atoms)
         self._eligible_atoms: List[str] = set(itertools.chain(*self._missing_atoms_list))
-        self._atom_names: List[str] = []
+        self._atom_idnames: List[str] = []
+        self._atom_cm_idnames: List[str] = []
         self._atoms: List[Atom] = []
         self._atom_idcs: List[int] = []
+        self._atom_cm_idcs: List[int] = []
         self._atom_weights: List[float] = []
 
         self._hierarchy_levels: List[int] = []
@@ -262,12 +272,12 @@ class Bead:
         self._local_index_prev: List[int] = []
     
     
-    def is_missing_atom(self, atom_name: str):
-        return atom_name in self._eligible_atoms and atom_name not in self._atom_names
+    def is_missing_atom(self, atom_idname: str):
+        return atom_idname in self._eligible_atoms and atom_idname not in self._atom_cm_idnames
     
-    def update(self, atom_name: str, atom: Optional[Atom], _id: int, bmas: BeadMappingAtomSettings):
+    def update(self, atom_idname: str, atom: Optional[Atom], _id: int, bmas: BeadMappingAtomSettings):
         self._is_newly_created = False
-        assert atom_name in self._eligible_atoms, f"Trying to update bead {self.type} with atom {atom_name} that does not belong to it."
+        assert atom_idname in self._eligible_atoms, f"Trying to update bead {self.type} with atom {atom_idname} that does not belong to it."
 
         # All atoms without the '!' flag contribute to the bead position
         weight = 0.
@@ -283,14 +293,16 @@ class Bead:
             else:
                 raise Exception(f"{self.weigth_based_on} is not a valid value for 'weigth_based_on'. Use either 'mass' or 'same'")
         weight *= bmas.relative_weight
+        self._atom_cm_idnames.append(atom_idname)
+        self._atom_cm_idcs.append(_id)
+        self._atom_weights.append(weight)
 
         # Only atoms with hierarchy information appear as atoms of the bead.
         # Atoms without hierarchy information are not reconstructed.
         if bmas.has_to_be_reconstructed:
-            self._atom_names.append(atom_name)
+            self._atom_idnames.append(atom_idname)
             self._atoms.append(atom)
             self._atom_idcs.append(_id)
-            self._atom_weights.append(weight)
             
             self._hierarchy_levels.append(bmas.hierarchy_level)
             self._local_index.append(bmas._local_index)
@@ -299,13 +311,13 @@ class Bead:
         invalid_confs = []
         atom_mapped = not bmas.has_to_be_reconstructed
         for conf_id, _missing_atoms in enumerate(self._missing_atoms_list):
-            if atom_name in _missing_atoms:
-                _missing_atoms.remove(atom_name)
+            if atom_idname in _missing_atoms:
+                _missing_atoms.remove(atom_idname)
                 atom_mapped = True
             else:
                 invalid_confs.append(conf_id)
         if not atom_mapped:
-            raise ValueError(f"Trying to update bead {self.type} with atom {atom_name} that is already mapped in this bead.")
+            raise ValueError(f"Trying to update bead {self.type} with atom {atom_idname} that is already mapped in this bead.")
         if any([not [ma for ma in _missing_atoms if self.keep_hydrogens or get_type_from_name(ma) != 1] for _missing_atoms in self._missing_atoms_list]):
             self.complete()
         return invalid_confs
@@ -320,25 +332,34 @@ class Bead:
         # We need consistency among atomistic and CG, otherwise the NN trained on the order of the
         # atomistic pdbs may swap the prediction order in the CG if atoms appear in different order in the config
         # w.r.t. the order in the pdbs used for training.
-        atom_names = np.array(self._atom_names)
-        coan_max_len = 0
-        for coa in self._config_ordered_atoms:
-            coan = np.array([x for x in coa if np.isin(x, atom_names)])
-            if len(coan) > coan_max_len:
-                coan_max_len = len(coan)
-                config_ordered_atom_names = coan
-        atom_names_sorted_idcs = np.argsort(atom_names)
-        sorting_filter = atom_names_sorted_idcs[np.searchsorted(atom_names[atom_names_sorted_idcs], config_ordered_atom_names)]
+        atom_idname = np.array(self._atom_idnames)
+        config_ordered_atom_idnames, atom_idnames_sorted_idcs = self.sort_atom_idnames(atom_idname)
+        sorting_filter = atom_idnames_sorted_idcs[np.searchsorted(atom_idname[atom_idnames_sorted_idcs], config_ordered_atom_idnames)]
 
-        self._atom_names = atom_names[sorting_filter].tolist()
+        self._atom_idnames = atom_idname[sorting_filter].tolist()
         self._atoms = np.array(self._atoms)[sorting_filter].tolist()
         self._atom_idcs = np.array(self._atom_idcs)[sorting_filter].tolist()
-        self._atom_weights = np.array(self._atom_weights)[sorting_filter].tolist()
         self._hierarchy_levels = np.array(self._hierarchy_levels)[sorting_filter].tolist()
         self._local_index = np.array(self._local_index)[sorting_filter].tolist()
         self._local_index_prev = np.array(self._local_index_prev)[sorting_filter].tolist()
 
+        atom_cm_idnames = np.array(self._atom_cm_idnames)
+        config_ordered_atom_cm_idnames, atom_cm_idnames_sorted_idcs = self.sort_atom_idnames(atom_cm_idnames)
+        sorting_cm_filter = atom_cm_idnames_sorted_idcs[np.searchsorted(atom_cm_idnames[atom_cm_idnames_sorted_idcs], config_ordered_atom_cm_idnames)]
+        self._atom_weights = np.array(self._atom_weights)[sorting_cm_filter].tolist()
+        self._atom_cm_idcs = np.array(self._atom_cm_idcs)[sorting_cm_filter].tolist()
+
         self._is_complete = True
+
+    def sort_atom_idnames(self, atom_idname):
+        coan_max_len = 0
+        for coa in self._config_ordered_atoms:
+            coan = np.array([x for x in coa if np.isin(x, atom_idname)])
+            if len(coan) > coan_max_len:
+                coan_max_len = len(coan)
+                config_ordered_atom_idnames = coan
+        atom_idnames_sorted_idcs = np.argsort(atom_idname)
+        return config_ordered_atom_idnames, atom_idnames_sorted_idcs
 
 
 class RBBead(Bead):

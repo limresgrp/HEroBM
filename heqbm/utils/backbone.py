@@ -263,8 +263,8 @@ class MinimizeEnergy(torch.nn.Module):
 
 def cat_interleave(array_list: List[np.ndarray]):
     n_arrays = len(array_list)
-    concatenated_array = np.zeros_like(array_list[np.argmax([x.dtype for x in array_list])])
-    concatenated_array = np.repeat(concatenated_array, n_arrays, axis=0)
+    concatenated_arrays = [np.zeros_like(alist) for alist in array_list]
+    concatenated_array = np.concatenate(concatenated_arrays, axis=0)
     for i, arr in enumerate(array_list):
         concatenated_array[i::n_arrays] = arr
     return concatenated_array

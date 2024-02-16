@@ -61,5 +61,5 @@ def minimise(
         print('Saving...')
         os.makedirs(dirname(pdb_out_filename), exist_ok=True)
         positions = simulation.context.getState(getPositions=True).getPositions()
-        PDBFile.writeFile(simulation.topology, positions, open(pdb_out_filename, 'w'))
+        PDBFile.writeFile(simulation.topology, positions, open(pdb_out_filename, 'w'), keepIds=True)
         print('Done')

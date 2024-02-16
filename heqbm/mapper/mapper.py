@@ -24,6 +24,7 @@ from heqbm.utils.geometry import get_dihedrals
 class Mapper():
 
     u: mda.Universe = None
+    bead_types_filename: str = "bead_types.yaml"
 
     _keep_hydrogens: bool = False
     _weigth_based_on: str = 'mass'
@@ -40,8 +41,10 @@ class Mapper():
     _complete_beads: List[HierarchicalBead] = []
     _ordered_beads: List[HierarchicalBead] = []
     _max_bead_atoms: int = 0
+    _max_bead_cm_atoms: int = 0
 
     _bead2atom_idcs_instance: np.ndarray = None
+    _bead2atom_cm_idcs_instance: np.ndarray = None
     _weights_instance: np.ndarray = None
 
     _atom_positions: np.ndarray = None
@@ -54,10 +57,13 @@ class Mapper():
     _ca_bead_idcs: np.ndarray = None
     _ca_next_directions: np.ndarray = None
 
+    _atom_resnames: np.ndarray = None
     _atom_names: np.ndarray = None
     _bead_names: np.ndarray = None
     _atom_residcs: np.ndarray = None
+    _atom_resnums: np.ndarray = None
     _bead_residcs: np.ndarray = None
+    _bead_resnums: np.ndarray = None
     _atom_forces: np.ndarray = None
     _atom_chainidcs: np.ndarray = None
     _bead_chainidcs: np.ndarray = None
@@ -84,7 +90,11 @@ class Mapper():
         return self._max_bead_atoms
     
     @property
-    def bead_types(self):
+    def bead_cm_size(self):
+        return self._max_bead_cm_atoms
+    
+    @property
+    def bead_types_dict(self):
         return self._bead_types
     
     @property
@@ -96,17 +106,11 @@ class Mapper():
         return self._bead2atom_idcs_mask
 
     # Properties of mapped instance
-
-    @property
-    def n_atoms_instance(self):
-        return len(self._atom_names)
-
-    @property
-    def n_beads_instance(self):
-        return len(self._bead_names)
     
     @property
     def bead2atom_idcs_instance(self):
+        if self._bead2atom_idcs_instance is None:
+            return None
         return np.ma.masked_array(self._bead2atom_idcs_instance, mask=~self.bead2atom_idcs_mask_instance)
     
     @property
@@ -122,18 +126,6 @@ class Mapper():
         return [list(row[row != -1]) for row in self._bead2atom_idcs_instance]
     
     @property
-    def atom_types_instance(self):
-        if self._atom_names is None:
-            return None
-        return np.array([get_type_from_name(name) for name in self._atom_names])
-    
-    @property
-    def bead_types_instance(self):
-        if self._bead_names is None:
-            return None
-        return np.array([self._bead_types[name] for name in self._bead_names])
-    
-    @property
     def dihedral_idcs(self):
         try:
             return np.concatenate(
@@ -147,23 +139,90 @@ class Mapper():
             return None
     
     @property
+    def resnames(self):
+        if self._atom_resnames is None or self._atom_residcs is None:
+            return None
+        return self._atom_resnames[
+            np.concatenate(
+                ([0], np.where(self._atom_residcs[:-1] != self._atom_residcs[1:])[0] + 1)
+                )
+            ]
+    
+    @property
+    def resnumbers(self):
+        if self._atom_resnums is None:
+            return None
+        return self._atom_resnums[
+            np.concatenate(
+                ([0], np.where(self._atom_residcs[:-1] != self._atom_residcs[1:])[0] + 1)
+                )
+            ]
+    
+    @property
+    def num_residues(self):
+        if self._atom_chainidcs is None or self._atom_residcs is None:
+            return None
+        chain_residue_names = []
+        for chain, resindex in zip(self._atom_chainidcs, self._atom_residcs):
+            chain_residue_names.append(f'{str(chain)}_{str(resindex)}')
+        return len(np.unique(chain_residue_names))
+    
+    @property
+    def num_atoms(self):
+        if self._atom_names is None:
+            return None
+        return len(self._atom_names)
+
+    @property
+    def atom_types(self):
+        if self._atom_names is None:
+            return None
+        return np.array([get_type_from_name(name) for name in self._atom_names])
+
+    @property
+    def num_beads(self):
+        if self._bead_names is None:
+            return None
+        return len(self._bead_names)
+    
+    @property
+    def bead_types(self):
+        if self._bead_names is None:
+            return None
+        return np.array([self._bead_types[name] for name in self._bead_names])
+    
+    @property
     def dataset(self):
         return {k: v for k, v in {
-            DataDict.ATOM_POSITION: self._atom_positions,
-            DataDict.ATOM_NAMES: self._atom_names,
-            DataDict.ATOM_TYPES: self.atom_types_instance,
-            DataDict.ATOM_RESIDCS: self._atom_residcs,
-            DataDict.ATOM_CHAINIDCS: self._atom_chainidcs,
-            DataDict.ATOM_FORCES: self._atom_forces,
+            DataDict.NUM_RESIDUES: self.num_residues,
+            DataDict.RESNAMES:     self.resnames,
+            DataDict.RESNUMBERS:   self.resnumbers,
 
-            DataDict.BEAD_POSITION: self._bead_positions,
-            DataDict.BEAD_NAMES: self._bead_names,
-            DataDict.BEAD_TYPES: self.bead_types_instance,
-            DataDict.BEAD_RESIDCS: self._bead_residcs,
-            DataDict.BEAD_CHAINIDCS: self._bead_chainidcs,
+            DataDict.NUM_ATOMS:       self.num_atoms,
+            DataDict.ATOM_POSITION:   self._atom_positions,
+            DataDict.ATOM_NAMES:      self._atom_names,
+            DataDict.ATOM_TYPES:      self.atom_types,
+            DataDict.ATOM_RESNAMES:   self._atom_resnames,
+            DataDict.ATOM_RESIDCS:    self._atom_residcs,
+            DataDict.ATOM_RESNUMBERS: self._atom_resnums,
+            DataDict.ATOM_CHAINIDCS:  self._atom_chainidcs,
+            DataDict.ATOM_FORCES:     self._atom_forces,
 
-            DataDict.MAPPING_IDCS: self.mapping_idcs_instance,
-            DataDict.BEAD2ATOM_IDCS: self.bead2atom_idcs_instance,
+            DataDict.NUM_BEADS:       self.num_beads,
+            DataDict.BEAD_POSITION:   self._bead_positions,
+            DataDict.BEAD_NAMES:      self._bead_names,
+            DataDict.BEAD_TYPES:      self.bead_types,
+            DataDict.BEAD_RESIDCS:    self._bead_residcs,
+            DataDict.BEAD_RESNUMBERS: self._bead_resnums,
+            DataDict.BEAD_CHAINIDCS:  self._bead_chainidcs,
+
+            DataDict.BOND_IDCS:  self._bond_idcs,
+            DataDict.ANGLE_IDCS: self._angle_idcs,
+            DataDict.CELL:       self._cell,
+            DataDict.PBC:        self._pbc,
+
+            DataDict.MAPPING_IDCS:        self.mapping_idcs_instance,
+            DataDict.BEAD2ATOM_IDCS:      self.bead2atom_idcs_instance,
             DataDict.BEAD2ATOM_IDCS_MASK: self.bead2atom_idcs_mask_instance,
 
             DataDict.BB_ATOM_POSITION: self._bb_atom_positions,
@@ -177,11 +236,6 @@ class Mapper():
             DataDict.PHI_DIH_IDCS: self._phi_dihedral_idcs,
             DataDict.PSI_DIH_IDCS: self._psi_dihedral_idcs,
             DataDict.OMEGA_DIH_IDCS: self._omega_dihedral_idcs,
-            
-            DataDict.BOND_IDCS: self._bond_idcs,
-            DataDict.ANGLE_IDCS: self._angle_idcs,
-            DataDict.CELL: self._cell,
-            DataDict.PBC: self._pbc,
         }.items() if v is not None}
 
     def __init__(self, config: Dict) -> None:
@@ -216,6 +270,7 @@ class Mapper():
         self._ordered_beads.clear()
 
         self._bead2atom_idcs_instance: np.ndarray = None
+        self._bead2atom_cm_idcs_instance: np.ndarray = None
         self._weights_instance: np.ndarray = None
 
         self._atom_positions: np.ndarray = None
@@ -227,6 +282,7 @@ class Mapper():
         self._ca_bead_idcs: np.ndarray = None
         self._ca_next_directions: np.ndarray = None
 
+        self._atom_resnames: np.ndarray = None
         self._atom_names: np.ndarray = None
         self._bead_names: np.ndarray = None
         self._atom_forces: np.ndarray = None
@@ -244,8 +300,14 @@ class Mapper():
         pass
 
     def _load_mappings(self):
-        bead_type = 0
+        bead_types_filename = os.path.join(self._root, self.bead_types_filename)
+        if os.path.isfile(bead_types_filename):
+            bead_types_conf: dict = yaml.safe_load(Path(bead_types_filename).read_text())
+        else:
+            bead_types_conf: dict = {}
         for filename in os.listdir(self._root):
+            if filename == self.bead_types_filename:
+                continue
             conf: dict = yaml.safe_load(Path(os.path.join(self._root, filename)).read_text())
             mol = conf.get("molecule")
             valid_confs_list = self._valid_configurations_list.get(mol, [])
@@ -262,37 +324,41 @@ class Mapper():
 
                 for i, bn in enumerate(bead_names):
                     bead_name = "_".join([mol, bn])
-                    atom_name = "_".join([mol, atom])
+                    atom_idname = "_".join([mol, atom])
                     bead_settings = [x.split(',')[i] for x in all_bead_settings[1:]]
                     
-                    atom2bead_list = self._atom2bead.get(atom_name, [])
+                    atom2bead_list = self._atom2bead.get(atom_idname, [])
                     atom2bead_list.append(bead_name)
-                    self._atom2bead[atom_name] = atom2bead_list
+                    self._atom2bead[atom_idname] = atom2bead_list
                     bms = self._bead_mapping_settings.get(bead_name, BeadMappingSettings(bead_name))
-                    bmas = bms.get_bmas_by_atom_name(atom_name)
+                    bmas = bms.get_bmas_by_atom_idname(atom_idname)
                     if bmas is None:
-                        bmas = BeadMappingAtomSettings(bead_settings, bead_name, atom_name, num_shared_beads=len(bead_names))
+                        bmas = BeadMappingAtomSettings(bead_settings, bead_name, atom_idname, num_shared_beads=len(bead_names))
                         bms.add_atom_settings(bmas)
                         self._bead_mapping_settings[bead_name] = bms
                     
                     bead2atom: List[str] = _conf_bead2atom.get(bead_name, [])
-                    if len(bead2atom) == 0:
-                        if bead_name not in self._bead_types:
-                            self._bead_types[bead_name] = bead_type
-                            bead_type += 1
-                    assert atom_name not in bead2atom, f"{atom_name} is already present in bead {bead_name}. Duplicate mapping"
-                    bead2atom.append(atom_name)
+                    if len(bead2atom) == 0 and bead_name not in self._bead_types:
+                        bead_type = bead_types_conf.get(bead_name, max(bead_types_conf.values(), default=-1)+1)
+                        bead_types_conf[bead_name] = bead_type
+                        self._bead_types[bead_name] = bead_type
+                    assert atom_idname not in bead2atom, f"{atom_idname} is already present in bead {bead_name}. Duplicate mapping"
+                    bead2atom.append(atom_idname)
                     _conf_bead2atom[bead_name] = bead2atom
             
             for bead_name, bms in self._bead_mapping_settings.items():
                 bms.update_relative_weights()
                 self._max_bead_atoms = max(self._max_bead_atoms, bms.bead_atoms)
+                self._max_bead_cm_atoms = max(self._max_bead_cm_atoms, bms.bead_cm_atoms)
                 
             for bead_name, bead2atom in _conf_bead2atom.items():
                 _bead2atom = self._bead2atom.get(bead_name, [])
                 _bead2atom.append(bead2atom)
                 self._bead2atom[bead_name] = _bead2atom
             self._store_extra_mappings()
+        
+        with open(bead_types_filename, 'w') as outfile:
+            yaml.dump(bead_types_conf, outfile, default_flow_style=False)
         
         for mol, valid_confs_list in self._valid_configurations_list.items():
             self._valid_configurations[mol] = np.array(valid_confs_list)
@@ -372,81 +438,99 @@ class Mapper():
 
         mapping_n = 0
 
+        atom_resnames = []
         atom_names = []
         atom_residcs = []
+        atom_resnums = []
         bead_residcs = []
+        bead_resnums = []
         atom_chainidcs = []
         bead2atom_idcs_instance = -np.ones((len(self._bead_names), self._max_bead_atoms), dtype=int)
 
         self.initialize_extra_map_impl_cg()
 
-        # chainid2residoffset is used to adjust resid values  in pdbs with multiple chains, because the resid are repeated across chains
-        resnums = sel.resnums
-        unique_chain_idcs = np.insert(np.unique(self._bead_chainidcs), 0, '')
+        # chainid2residoffset is used to adjust resindex values  in pdbs with multiple chains, because the resindex are repeated across chains
+        # unique_chain_idcs = np.insert(np.unique(self._bead_chainidcs), 0, '')
 
-        chainid2residoffset = {}
-        for prev_chainid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
-                chainid2residoffset[chainid] = chainid2residoffset.get(prev_chainid, 0) + \
-                                               resnums[self._bead_chainidcs == prev_chainid].max(initial=0) + \
-                                               -resnums[self._bead_chainidcs == chainid].min() + \
-                                               1
+        # chainid2residoffset = {}
+        # for prev_chainid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
+        #         chainid2residoffset[chainid] = chainid2residoffset.get(prev_chainid, 0) + \
+        #                                        resnums[self._bead_chainidcs == prev_chainid].max(initial=0) + \
+        #                                        -resnums[self._bead_chainidcs == chainid].min() + \
+        #                                        1
 
         atom_index_offset = 0
         _id = 0
-        atom_names_missing_multiplicity = {}
-        atom_names2index = {}
+        atom_idnames_missing_multiplicity = {}
+        atom_idnames2index = {}
         for h, (bead_name, sel_bead) in enumerate(zip(self._bead_names, sel.atoms)):
-            bead_atom_names = np.array([
-                atom_name for atom_name in self._bead2atom[bead_name][mapping_n]
-                if self._keep_hydrogens or get_type_from_name(atom_name) != 1
+            bead_atom_idnames = np.array([
+                atom_idname for atom_idname in self._bead2atom[bead_name][mapping_n]
+                if (self._bead_mapping_settings.get(bead_name).get_bmas_by_atom_idname(atom_idname)._has_to_be_reconstructed)
             ])
-            new_bead_atom_names = np.array(
-                [atom_name for atom_name in bead_atom_names if atom_names_missing_multiplicity.get(atom_name, 0) == 0]
+            new_bead_atom_idnames = np.array(
+                [atom_idname for atom_idname in bead_atom_idnames if atom_idnames_missing_multiplicity.get(atom_idname, 0) == 0]
             )
-            atom_names.extend(new_bead_atom_names)
+
+            for atom_idname in new_bead_atom_idnames:
+                atom_resname, atom_name = atom_idname.split(DataDict.STR_SEPARATOR)
+                atom_resnames.append(atom_resname)
+                atom_names.append(atom_name)
 
             bead = self._create_bead(bead_name)
             _idcs = []
-            for atom_name in bead_atom_names:
+            for atom_idname in bead_atom_idnames:
                 increase_id = False
-                if atom_name in new_bead_atom_names:
+                if atom_idname in new_bead_atom_idnames:
                     _idcs.append(_id + atom_index_offset)
                     increase_id = True
                 else:
-                    _idcs.append(atom_names2index[atom_name])
-                _ = self._update_bead(bead, atom_name, None, _idcs[-1])
+                    _idcs.append(atom_idnames2index[atom_idname])
+                _ = self._update_bead(bead, atom_idname, None, _idcs[-1])
                 self._check_bead_completeness(bead)
                 
-                if atom_names_missing_multiplicity.get(atom_name, 0) > 0:
-                    atom_names_missing_multiplicity[atom_name] -= 1
+                if atom_idnames_missing_multiplicity.get(atom_idname, 0) > 0:
+                    atom_idnames_missing_multiplicity[atom_idname] -= 1
                 else:
-                    atom_names_missing_multiplicity[atom_name] = len(np.unique(self._atom2bead[atom_name])) - 1
-                    if atom_names_missing_multiplicity[atom_name] > 0:
-                        atom_names2index[atom_name] = _id
+                    atom_idnames_missing_multiplicity[atom_idname] = len(np.unique(self._atom2bead[atom_idname])) - 1
+                    if atom_idnames_missing_multiplicity[atom_idname] > 0:
+                        atom_idnames2index[atom_idname] = _id
                 
-                self.update_extra_map_impl_cg(bead_atom_names, bead_name, mapping_n, atom_index_offset)
+                self.update_extra_map_impl_cg(bead_atom_idnames, bead_name, mapping_n, atom_index_offset)
                 if increase_id:
                     _id += 1
 
-            bead2atom_idcs_instance[h, :len(bead_atom_names)] = np.array(_idcs)
-            atom_residcs.extend([sel_bead.resid + chainid2residoffset.get(self._bead_chainidcs[h], 0)] * len(new_bead_atom_names))
-            bead_residcs.append(sel_bead.resid + chainid2residoffset.get(self._bead_chainidcs[h], 0))
-            atom_chainidcs.extend([self._bead_chainidcs[h]] * len(new_bead_atom_names))
+            bead2atom_idcs_instance[h, :len(bead_atom_idnames)] = np.array(_idcs)
+            # atom_residcs.extend([sel_bead.resindex + chainid2residoffset.get(self._bead_chainidcs[h], 0)] * len(new_bead_atom_idnames))
+            # bead_residcs.append(sel_bead.resindex + chainid2residoffset.get(self._bead_chainidcs[h], 0))
+            atom_residcs.extend([sel_bead.resindex] * len(new_bead_atom_idnames))
+            atom_resnums.extend([sel_bead.resnum] * len(new_bead_atom_idnames))
+            bead_residcs.append(sel_bead.resindex)
+            bead_resnums.append(sel_bead.resnum)
+            atom_chainidcs.extend([self._bead_chainidcs[h]] * len(new_bead_atom_idnames))
 
+        self._atom_resnames = np.array(atom_resnames)
         self._atom_names = np.array(atom_names)
         self._atom_residcs = np.array(atom_residcs)
+        self._atom_residcs -= self._atom_residcs.min()
+        self._atom_resnums = np.array(atom_resnums)
         self._bead_residcs = np.array(bead_residcs)
+        self._bead_resnums = np.array(bead_resnums)
+        self._bead_residcs -= self._bead_residcs.min()
         self._atom_chainidcs = np.array(atom_chainidcs)
         self._bead2atom_idcs_instance = np.array(bead2atom_idcs_instance)
-        self._bb_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'N', 'C'] for an in self._atom_names])
-        self._ca_atom_idcs = np.array([an.split('_')[-1] in ['CA'] for an in self._atom_names])
+        self._bb_atom_idcs = np.array([an in ['CA', 'N', 'C'] for an in self._atom_names])
+        self._ca_atom_idcs = np.array([an in ['CA'] for an in self._atom_names])
         self._ca_bead_idcs = np.array([bn.split('_')[-1] in ['BB'] for bn in self._bead_names])
+
+        batch, _, xyz = self._bead_positions.shape
+        self._atom_positions =  np.zeros((batch, self._bead2atom_idcs_instance.max() + 1, xyz), dtype=self._bead_positions.dtype)
 
         self.store_extra_map_impl_cg()
         
         self.compute_extra_map_impl()
 
-        self.compute_dihedral_idcs()
+        # self.compute_dihedral_idcs()
             
     def map_impl(self, selection, frame_limit=None):
         if not self._keep_hydrogens:
@@ -462,58 +546,64 @@ class Mapper():
             temp_atom_chainidcs = np.array(['A'] * sel.n_atoms)
 
         # Iterate elements in the system
+        atom_resnames = []
         atom_names = []
         bead_names = []
         excluded_atoms = []
         atom_residcs = []
+        atom_resnums = []
         bead_residcs = []
+        bead_resnums = []
         bead_chainidcs = []
 
         self.initialize_extra_map_impl()
 
         _id = 0
-        chainid2residoffset = {}
-        try:
-            resnums = sel.resnums
-            unique_chain_idcs = np.insert(np.unique(temp_atom_chainidcs), 0, '')
-            # chainid2residoffset is used to adjust resid values in pdbs with multiple chains, because the resid are repeated across chains
-            for prev_chainid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
-                chainid2residoffset[chainid] = chainid2residoffset.get(prev_chainid, 0) + \
-                                               resnums[temp_atom_chainidcs == prev_chainid].max(initial=0) + \
-                                               -resnums[temp_atom_chainidcs == chainid].min() + \
-                                               1
-        except mda.exceptions.NoDataError:
-            pass
+        # chainid2residoffset = {}
+        # try:
+            # unique_chain_idcs = np.insert(np.unique(temp_atom_chainidcs), 0, '')
+            # # chainid2residoffset is used to adjust resindex values in pdbs with multiple chains, because the resindex are repeated across chains
+            # for prev_chainid, chainid in zip(unique_chain_idcs[:-1], unique_chain_idcs[1:]):
+            #     chainid2residoffset[chainid] = chainid2residoffset.get(prev_chainid, 0) + \
+            #                                    resnums[temp_atom_chainidcs == prev_chainid].max(initial=0) + \
+            #                                    -resnums[temp_atom_chainidcs == chainid].min() + \
+            #                                    1
+        # except mda.exceptions.NoDataError:
+        #     pass
 
         for h, atom in enumerate(sel.atoms):
             try:
                 # Read atom properties
-                mol = atom.resname
-                atom_name = DataDict.STR_SEPARATOR.join([mol, re.sub(r'^(\d+)\s*(.+)', r'\2\1', atom.name)])
+                atom_idname = DataDict.STR_SEPARATOR.join([atom.resname, re.sub(r'^(\d+)\s*(.+)', r'\2\1', atom.name)])
                 try:
-                    beads = self._get_incomplete_bead_from_atom_name(atom_name)
+                    beads = self._get_incomplete_bead_from_atom_idname(atom_idname)
                 except:
-                    atom_name = atom_name.replace("T1", "")
-                    beads = self._get_incomplete_bead_from_atom_name(atom_name)
+                    atom_idname = atom_idname.replace("T1", "")
+                    beads = self._get_incomplete_bead_from_atom_idname(atom_idname)
 
                 for bead in beads:
                     if bead.is_newly_created:
                         bead_names.append(bead.name)
-                        bead_residcs.append(atom.resid + chainid2residoffset.get(temp_atom_chainidcs[h], 0))
+                        # bead_residcs.append(atom.resindex + chainid2residoffset.get(temp_atom_chainidcs[h], 0))
+                        bead_residcs.append(atom.resindex)
+                        bead_resnums.append(atom.resnum)
                         bead_chainidcs.append(temp_atom_chainidcs[h])
-                    invalid_confs = self._update_bead(bead, atom_name, atom, _id)
+                    invalid_confs = self._update_bead(bead, atom_idname, atom, _id)
                         
                     self._check_bead_completeness(bead)
                     for ic in invalid_confs:
-                        valid_confs = self._valid_configurations[mol]
+                        valid_confs = self._valid_configurations[atom.resname]
                         if ic in valid_confs:
                             valid_confs = np.delete(valid_confs, np.nonzero(valid_confs == ic)[0])
-                        self._valid_configurations[mol] = valid_confs
-                    self.update_extra_map_impl(atom_name, bead, _id)
+                        self._valid_configurations[atom.resname] = valid_confs
+                    self.update_extra_map_impl(atom_idname, bead, _id)
                 _id += 1
 
-                atom_names.append(atom_name)
-                atom_residcs.append(atom.resid + chainid2residoffset.get(temp_atom_chainidcs[h], 0))
+                atom_resnames.append(atom.resname)
+                atom_names.append(atom.name)
+                # atom_residcs.append(atom.resindex + chainid2residoffset.get(temp_atom_chainidcs[h], 0))
+                atom_residcs.append(atom.resindex)
+                atom_resnums.append(atom.resnum)
                 
             except AssertionError:
                 _, _, tb = sys.exc_info()
@@ -524,7 +614,7 @@ class Mapper():
                 print('An error occurred on line {} in statement {}'.format(line, text))
                 raise
             except Exception as e:
-                print(f"Missing {atom_name} in mapping file")
+                print(f"Missing {atom_idname} in mapping file")
                 atom_to_exclude = '_'.join([atom.resname, atom.name])
                 if atom_to_exclude not in excluded_atoms:
                     selection = selection + f' and not (resname {atom.resname} and name {atom.name})'
@@ -538,10 +628,15 @@ class Mapper():
             for bead in self._complete_beads:
                 self._incomplete_beads.remove(bead)
         #########################################
+        self._atom_resnames = np.array(atom_resnames)
         self._atom_names = np.array(atom_names)
         self._bead_names = np.array(bead_names)
         self._atom_residcs = np.array(atom_residcs)
+        self._atom_residcs -= self._atom_residcs.min()
+        self._atom_resnums = np.array(atom_resnums)
         self._bead_residcs = np.array(bead_residcs)
+        self._bead_residcs -= self._bead_residcs.min()
+        self._bead_resnums = np.array(bead_resnums)
         self._bead_chainidcs = np.array(bead_chainidcs)
         self._bb_atom_idcs = np.array([an.split('_')[-1] in ['CA', 'N', 'C'] for an in self._atom_names])
         self._ca_atom_idcs = np.array([an.split('_')[-1] in ['CA'] for an in self._atom_names])
@@ -587,7 +682,7 @@ class Mapper():
                     bb_atom_positions.append(pos[self._bb_atom_idcs])
                 if len(self._ca_atom_idcs) > 0:
                     ca_atom_positions.append(pos[self._ca_atom_idcs])
-                weighted_pos = pos[self._bead2atom_idcs_instance] * self._weights_instance[..., None]
+                weighted_pos = pos[self._bead2atom_cm_idcs_instance] * self._weights_instance[..., None]
                 bead_pos = np.sum(weighted_pos, axis=1)
                 bead_positions.append(bead_pos)
                 ca_next_direction = np.zeros_like(bead_pos)
@@ -621,12 +716,12 @@ class Mapper():
         self.store_extra_pos_impl()
 
         # Extract dihedrals from topology (if present) or compute those of backbone
-        self.compute_dihedral_idcs(selection=sel)
+        # self.compute_dihedral_idcs(selection=sel)
     
     def initialize_extra_map_impl(self):
         pass
 
-    def update_extra_map_impl(self, atom_name: str, bead: Bead, _id: int):
+    def update_extra_map_impl(self, atom_idname: str, bead: Bead, _id: int):
         pass
 
     def store_extra_map_impl(self):
@@ -653,13 +748,13 @@ class Mapper():
     def store_extra_map_impl_cg(self):
         pass
     
-    def _get_incomplete_bead_from_atom_name(self, atom_name: str):
-        bead_names = np.unique(np.array(self._atom2bead[atom_name]))
+    def _get_incomplete_bead_from_atom_idname(self, atom_idname: str):
+        bead_names = np.unique(np.array(self._atom2bead[atom_idname]))
         beads = []
         for bead_name in bead_names:
             found = False
             for bead in self._incomplete_beads:
-                if bead.name.__eq__(bead_name) and bead.is_missing_atom(atom_name):
+                if bead.name.__eq__(bead_name) and bead.is_missing_atom(atom_idname):
                     beads.append(bead)
                     found = True
                     break
@@ -667,9 +762,9 @@ class Mapper():
                 beads.append(self._create_bead(bead_name))
         return beads
     
-    def _update_bead(self, bead: Bead, atom_name: str, atom: Atom, _id: int):
-        bmas = self._bead_mapping_settings.get(bead.name).get_bmas_by_atom_name(atom_name)
-        return bead.update(atom_name, atom, _id, bmas)
+    def _update_bead(self, bead: Bead, atom_idname: str, atom: Atom, _id: int):
+        bmas = self._bead_mapping_settings.get(bead.name).get_bmas_by_atom_idname(atom_idname)
+        return bead.update(atom_idname, atom, _id, bmas)
     
     def _create_bead(self, bead_name: str):
         bead = HierarchicalBead(
@@ -700,15 +795,16 @@ class Mapper():
     
     def compute_bead2atom_idcs_and_weights(self):
         ### Initialize instance mapping ###
-        self._bead2atom_idcs_instance = -np.ones((self.n_beads_instance, self._max_bead_atoms), dtype=int)
-        self._weights_instance = np.zeros((self.n_beads_instance, self._max_bead_atoms), dtype=float)
+        self._bead2atom_idcs_instance = -np.ones((self.num_beads, self.bead_size), dtype=int)
+        self._bead2atom_cm_idcs_instance = -np.ones((self.num_beads, self.bead_cm_size), dtype=int)
+        self._weights_instance = np.zeros((self.num_beads, self.bead_cm_size), dtype=float)
 
         for i, bead in enumerate(self._ordered_beads):
             ### Build instance bead2atom_idcs and weights ###
-            b2a_idcs =  np.array(bead._atom_idcs)
-            self._bead2atom_idcs_instance[i, :bead.n_atoms] = b2a_idcs
+            self._bead2atom_idcs_instance[i, :bead.n_atoms] = np.array(bead._atom_idcs)
+            self._bead2atom_cm_idcs_instance[i, :bead.n_cm_atoms] = np.array(bead._atom_cm_idcs)
             weights = np.array(bead._atom_weights)
-            self._weights_instance[i, :bead.n_atoms] = weights / weights.sum()
+            self._weights_instance[i, :bead.n_cm_atoms] = weights / weights.sum()
     
     def compute_dihedral_idcs(self, selection = None):
         # if selection is not None:
@@ -736,17 +832,17 @@ class Mapper():
             psi_dict[curr_resid] = psi
             omega_dict[curr_resid] = omega
 
-        for atom_index, (name, resid) in enumerate(zip(self._atom_names, self._atom_residcs)):
+        for atom_index, (name, resindex) in enumerate(zip(self._atom_names, self._atom_residcs)):
             resname, atom_name = name.split('_')
             if atom_name not in ['C', 'N', 'CA', 'O']:
                 continue
             for dih_dict, idcs_list in zip([phi_dict, psi_dict, omega_dict], [phi_dihedral_idcs, psi_dihedral_idcs, omega_dihedral_idcs]):
-                if resid in dih_dict:
+                if resindex in dih_dict:
                     for offset in [0, 1]:
-                        dih = dih_dict.get(resid - offset)
+                        dih = dih_dict.get(resindex - offset)
                         if dih is None:
                             continue
-                        dih(atom_name, resid, atom_index)
+                        dih(atom_name, resindex, atom_index)
                         if dih.is_completed():
                             idcs = dih.get_idcs()
                             if idcs is not None:
@@ -812,7 +908,6 @@ class Mapper():
                 z[np.tril_indices(len(z), k=-1)] = False
                 self._bond_idcs = np.stack(np.nonzero(z)).T
                 bond_idcs_from_top = False
-        self._bond_idcs = self._bond_idcs[np.all(np.isin(self._bond_idcs, atoms_to_reconstruct_idcs), axis=1)]
         try:
             self._angle_idcs = selection.intra_angles.indices
         except:
@@ -822,7 +917,6 @@ class Mapper():
             df3 = df3.dropna().astype(int)
             self._angle_idcs = df3.values
             angle_idcs_from_top = False
-        self._angle_idcs = self._angle_idcs[np.all(np.isin(self._angle_idcs, atoms_to_reconstruct_idcs), axis=1)]
         if not self._keep_hydrogens:
             bond_atoms_are_valid = np.zeros_like(self._bond_idcs, dtype=bool)
             angle_atoms_are_valid = np.zeros_like(self._angle_idcs, dtype=bool)
@@ -836,3 +930,5 @@ class Mapper():
                     self._angle_idcs[self._angle_idcs == atom.index] = _id
             self._bond_idcs = self._bond_idcs[np.all(bond_atoms_are_valid, axis=1)]
             self._angle_idcs = self._angle_idcs[np.all(angle_atoms_are_valid, axis=1)]
+        self._bond_idcs = self._bond_idcs[np.all(np.isin(self._bond_idcs, atoms_to_reconstruct_idcs), axis=1)]
+        self._angle_idcs = self._angle_idcs[np.all(np.isin(self._angle_idcs, atoms_to_reconstruct_idcs), axis=1)]
