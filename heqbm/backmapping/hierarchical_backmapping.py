@@ -212,7 +212,7 @@ class HierarchicalBackmapping:
 
         pos = minimizer_data["pos"].detach().cpu().numpy()
         real_bb_atom_idcs = minimizer_data["real_bb_atom_idcs"].detach().cpu().numpy()
-        backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED] = pos[real_bb_atom_idcs]
+        backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED] = pos # pos[real_bb_atom_idcs]
         if DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ in minimizer_data:
             backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ] = np.stack(
                 minimizer_data[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ],
@@ -222,7 +222,8 @@ class HierarchicalBackmapping:
         
     def map(
         self,
-        index: int
+        index: int,
+        skip_if_existent: bool = True,
     ):
         if self.structure_foldername is None:
             self.mapping.map(self.config, selection=self.config.get("selection", "all"))
@@ -231,8 +232,8 @@ class HierarchicalBackmapping:
             self.config["structure_filename"] = self.structure_filename
             self.config["traj_filenames"] = []
             self.config["output_folder"] = os.path.join(self.root_output_folder, '.'.join(basename(self.structure_filename).split('.')[:-1]))
-            # if os.path.isdir(self.config["output_folder"]):
-            #     return False
+            if skip_if_existent and os.path.isdir(self.config["output_folder"]):
+                return False
             print(f"Mapping structure {self.structure_filename}")
             self.mapping.map(self.config, selection=self.config.get("selection", "all"))
         return True
@@ -329,8 +330,9 @@ class HierarchicalBackmapping:
             n_atom_idcs = minimizer_data["n_atom_idcs"].cpu().numpy()
             ca_atom_idcs = backmapping_dataset[DataDict.CA_ATOM_IDCS]
             c_atom_idcs = minimizer_data["c_atom_idcs"].cpu().numpy()
+            o_atom_idcs = minimizer_data["o_atom_idcs"].cpu().numpy()
             
-            backmapping_dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED]
+            backmapping_dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs + ca_atom_idcs + c_atom_idcs + o_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED]
             if minimise_dih:
                 backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset)
 
@@ -346,9 +348,9 @@ class HierarchicalBackmapping:
         if DataDict.ATOM_POSITION in backmapping_dataset:
             try:
                 print(f"RMSD All: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], ignore_nan=True):4.3f} Angstrom")
-                no_bb_fltr = np.array([an.split('_')[1] not in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
+                no_bb_fltr = np.array([an not in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
                 print(f"RMSD on Side-Chains: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=no_bb_fltr, ignore_nan=True):4.3f} Angstrom")
-                bb_fltr = np.array([an.split('_')[1] in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
+                bb_fltr = np.array([an in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
                 print(f"RMSD on Backbone: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=bb_fltr, ignore_nan=True):4.3f} Angstrom")
             except:
                 pass
@@ -407,7 +409,6 @@ class HierarchicalBackmapping:
             frame_index: int,
             selection: str,
             folder: str,
-            atom_filter: Optional[np.ndarray] = None,
             previous_u: Optional[mda.Universe] = None,
         ):
         
@@ -421,7 +422,6 @@ class HierarchicalBackmapping:
 
         # Write pdb file(s) of CG structure(s)
         CG_u = build_CG(backmapping_dataset, u.dimensions)
-
         CG_sel = CG_u.select_atoms('all')
         CG_sel.positions = backmapping_dataset.get(DataDict.BEAD_POSITION_ORIGINAL, backmapping_dataset[DataDict.BEAD_POSITION])[0]
         CG_sel.write(os.path.join(folder, f"original_CG_{frame_index}.pdb"))
@@ -435,38 +435,33 @@ class HierarchicalBackmapping:
         
         # Write pdb of backmapped structure
         if previous_u is None:
-            backmapped_u, residue_idcs_filter = build_backmapped(backmapping_dataset, n_frames, atom_filter, u.dimensions)
+            backmapped_u = build_universe(backmapping_dataset, n_frames, u.dimensions)
         else:
             backmapped_u = previous_u
-            _, _, _, residue_idcs_filter = compute_backmapped_top_attrs(backmapping_dataset)
+            # _, _, _, residue_idcs_filter = compute_backmapped_top_attrs(backmapping_dataset)
         
         backmapped_u.trajectory[frame_index]
         backmapped_sel = backmapped_u.select_atoms('all')
-
         positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0]
-        if atom_filter is not None:
-            positions_pred = positions_pred[atom_filter]
-        # positions_pred = np.nan_to_num(positions_pred, nan=0.)
-        # positions_pred = positions_pred[residue_idcs_filter]
         backmapped_sel.positions = positions_pred[~np.any(np.isnan(positions_pred), axis=-1)]
 
         backmapped_filename = os.path.join(folder, f"backmapped_{frame_index}.pdb") 
         backmapped_sel.write(backmapped_filename)
         topology, positions = fixPDB(backmapped_filename)
-        PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"backmapped_fixed_{frame_index}.pdb"), 'w'))
+        PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"backmapped_fixed_{frame_index}.pdb"), 'w'), keepIds=True)
 
         # Write pdb of backmapped structure's backbone optimisation trajectory
         if DataDict.ATOM_POSITION_MINIMISATION_TRAJ in backmapping_dataset:
             positions_bb_minimisation = backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ]
             positions_bb_minimisation = np.nan_to_num(positions_bb_minimisation, nan=0.)
-            bb_minimisation_u, residue_idcs_filter = build_backmapped(backmapping_dataset, len(positions_bb_minimisation), atom_filter, u.dimensions)
+            bb_minimisation_u = build_universe(backmapping_dataset, len(positions_bb_minimisation), u.dimensions)
 
             bb_minimisation_sel = bb_minimisation_u.select_atoms('all')
             bb_minimisation_filename = os.path.join(folder, f"bb_minimisation_{frame_index}.pdb") 
 
             with mda.Writer(bb_minimisation_filename, multiframe=True) as W:
                 for ts, pos_bb_min in zip(bb_minimisation_u.trajectory, positions_bb_minimisation):
-                    bb_minimisation_sel.positions = pos_bb_min[residue_idcs_filter]
+                    bb_minimisation_sel.positions = pos_bb_min
                     W.write(bb_minimisation_sel)
         else:
             bb_minimisation_u = None
@@ -477,7 +472,7 @@ class HierarchicalBackmapping:
             true_filename = os.path.join(folder, f"true_{frame_index}.pdb")
             sel.write(true_filename)
             topology, positions = fixPDB(true_filename)
-            PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"true_fixed_{frame_index}.pdb"), 'w'))
+            PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"true_fixed_{frame_index}.pdb"), 'w'), keepIds=True)
 
         print(f"Finished. Time: {time.time() - t}")
         return CG_u, backmapped_u, bb_minimisation_u
@@ -486,135 +481,88 @@ def build_CG(
     backmapping_dataset: dict,
     box_dimensions,
 ) -> mda.Universe:
-    bead_resindex = backmapping_dataset[DataDict.BEAD_RESIDCS]
-    bead_resindex -= np.min(bead_resindex)
-    n_atoms = len(backmapping_dataset[DataDict.BEAD_POSITION][0])
-    n_residues = len(np.unique(bead_resindex))
-    atom_resindex = np.bincount(bead_resindex)
-    atom_resindex = atom_resindex[np.nonzero(atom_resindex)[0]]
-    atom_resindex = np.repeat(np.arange(n_residues), atom_resindex)
-    CG_u = mda.Universe.empty(n_atoms=n_atoms,
-                            n_residues=n_residues,
-                            atom_resindex=atom_resindex,
-                            trajectory=True) # necessary for adding coordinates
+    CG_u = mda.Universe.empty(
+        n_atoms =       backmapping_dataset[DataDict.NUM_BEADS],
+        n_residues =    backmapping_dataset[DataDict.NUM_RESIDUES],
+        atom_resindex = backmapping_dataset[DataDict.BEAD_RESIDCS],
+        trajectory =    True, # necessary for adding coordinates
+    )
     CG_u.dimensions = box_dimensions
     CG_u.add_TopologyAttr('name', [bn.split('_')[1] for bn in backmapping_dataset[DataDict.BEAD_NAMES]])
-    CG_u.add_TopologyAttr('type', ['X' for _ in backmapping_dataset[DataDict.BEAD_CHAINIDCS]])
-    CG_u.add_TopologyAttr('resname', [bn.split('_')[0] for bn in backmapping_dataset[DataDict.BEAD_NAMES][np.unique(bead_resindex, return_index=True)[1]]])
-    CG_u.add_TopologyAttr('resid', np.unique(bead_resindex))
+    CG_u.add_TopologyAttr('type',     backmapping_dataset[DataDict.BEAD_TYPES])
+    CG_u.add_TopologyAttr('resname',  backmapping_dataset[DataDict.RESNAMES])
+    CG_u.add_TopologyAttr('resid',    backmapping_dataset[DataDict.RESNUMBERS])
     CG_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.BEAD_CHAINIDCS])
 
     return CG_u
 
-def build_backmapped(
-    backmapping_dataset: dict,
-    n_frames: int,
-    atom_filter: Optional[np.ndarray],
-    box_dimensions,
-):
-    atom_resindex, resnames, atomnames, residue_idcs_filter = compute_backmapped_top_attrs(backmapping_dataset)
+# def build_backmapped(
+#     backmapping_dataset: dict,
+#     n_frames: int,
+#     box_dimensions,
+# ):
+#     # residue_idcs_filter = compute_backmapped_top_attrs(backmapping_dataset)
 
-    backmapped_u = build_universe(
-        backmapping_dataset,
-        n_frames,
-        box_dimensions,
-        atom_filter,
-        atom_resindex,
-        resnames,
-        atomnames,
-        residue_idcs_filter
-    )
+#     backmapped_u = build_universe(
+#         backmapping_dataset,
+#         n_frames,
+#         box_dimensions,
+#     )
 
-    return backmapped_u, residue_idcs_filter
+#     return backmapped_u
 
 def build_universe(
     backmapping_dataset,
     n_frames,
     box_dimensions,
-    atom_filter,
-    atom_resindex,
-    resnames,
-    atomnames,
-    residue_idcs_filter
 ):
-    pos = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0]
-    nan_filter = ~np.any(np.isnan(pos), axis=-1)
-    pos = pos[nan_filter]
-    atom_resindex = atom_resindex[nan_filter]
-    if atom_filter is None:
-        atom_filter = np.array([True for _ in atomnames])
-    # atom_filter = atom_filter[residue_idcs_filter]
-    atom_filter = atom_filter[nan_filter]
-
-    n_atoms = len(pos[atom_filter])
+    nan_filter = ~np.any(np.isnan(backmapping_dataset[DataDict.ATOM_POSITION_PRED][0]), axis=-1)
+    num_atoms = nan_filter.sum()
     backmapped_u = mda.Universe.empty(
-        n_atoms,
-        n_residues=len(np.unique(atom_resindex)),
-        atom_resindex=atom_resindex[atom_filter],
-        residue_segindex=np.unique(atom_resindex)+1,
-        trajectory=True # necessary for adding coordinates
+        n_atoms =       num_atoms,
+        n_residues =    backmapping_dataset[DataDict.NUM_RESIDUES],
+        atom_resindex = backmapping_dataset[DataDict.ATOM_RESIDCS][nan_filter],
+        trajectory    = True # necessary for adding coordinates
     )
     coordinates = np.empty((
         n_frames,  # number of frames
-        n_atoms,
+        num_atoms,
         3,
     ))
     backmapped_u.load_new(coordinates, order='fac')
 
     backmapped_u.dimensions = box_dimensions
-    backmapped_u.add_TopologyAttr('name', atomnames[nan_filter][atom_filter].tolist()) # [residue_idcs_filter]
-    backmapped_u.add_TopologyAttr('type', np.array([an.split(DataDict.STR_SEPARATOR)[-1] for an in atomnames[nan_filter]])[atom_filter]) # [residue_idcs_filter]
-    backmapped_u.add_TopologyAttr('resname', resnames)
-    backmapped_u.add_TopologyAttr('resid', np.unique(atom_resindex)+1)
-    backmapped_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.ATOM_CHAINIDCS][nan_filter][atom_filter])
+    backmapped_u.add_TopologyAttr('name',     backmapping_dataset[DataDict.ATOM_NAMES][nan_filter])
+    backmapped_u.add_TopologyAttr('type',     backmapping_dataset[DataDict.ATOM_TYPES][nan_filter])
+    backmapped_u.add_TopologyAttr('resname',  backmapping_dataset[DataDict.RESNAMES])
+    backmapped_u.add_TopologyAttr('resid',    backmapping_dataset[DataDict.RESNUMBERS])
+    backmapped_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.ATOM_CHAINIDCS][nan_filter])
 
     return backmapped_u
 
-def compute_backmapped_top_attrs(backmapping_dataset: dict):
-    atom_resindex = []
-    atomnames = []
-    resnames = []
-    last_res_resname = None
-    last_res_atomname = None
-    resid = -1
-    for an in backmapping_dataset[DataDict.ATOM_NAMES]:
-        resname, atomname = an.split(DataDict.STR_SEPARATOR)
-        if resname != last_res_resname:
-            resid += 1
-            last_res_resname = resname
-            last_res_atomname = atomname
-            resnames.append(resname)
-        elif resname == last_res_resname and atomname == last_res_atomname:
-            resid += 1
-            resnames.append(resname)
-        atomnames.append(atomname)
-        atom_resindex.append(resid)
-    resnames = np.array(resnames)
-    atomnames = np.array(atomnames)
-    atom_resindex = np.array(atom_resindex)
-
-    residue_idcs_filter = []
-    for resindex, resname in zip(np.unique(atom_resindex), resnames):
-        residue_id_filter = np.argwhere(atom_resindex == resindex).flatten()
-        residue_atomnames = atomnames[residue_id_filter]
-        if 'C' in residue_atomnames \
-        and 'O' in residue_atomnames \
-        and resname in DataDict.RESNAMES:
-            C_id = np.argwhere(residue_atomnames == 'C').item()
-            O_id = np.argwhere(residue_atomnames == 'O').item()
-            C_index = residue_id_filter[C_id]
-            O_index = residue_id_filter[O_id]
-            residue_id_filter[C_id:-2] = residue_id_filter[O_id+1:]
-            residue_id_filter[-2] = C_index
-            residue_id_filter[-1] = O_index
-        residue_idcs_filter.append(residue_id_filter)
-    residue_idcs_filter = np.concatenate(residue_idcs_filter)
-    return atom_resindex, resnames, atomnames, residue_idcs_filter
+# def compute_backmapped_top_attrs(backmapping_dataset: dict):
+#     residue_idcs_filter = []
+#     for resindex, resname in zip(np.unique(atom_resindex), backmapping_dataset[DataDict.RESNAMES]):
+#         residue_id_filter = np.argwhere(atom_resindex == resindex).flatten()
+#         residue_atomnames = backmapping_dataset[DataDict.ATOM_NAMES][residue_id_filter]
+#         if 'C' in residue_atomnames \
+#         and 'O' in residue_atomnames \
+#         and resname in DataDict.PROTEIN_RESNAMES:
+#             C_id = np.argwhere(residue_atomnames == 'C').item()
+#             O_id = np.argwhere(residue_atomnames == 'O').item()
+#             C_index = residue_id_filter[C_id]
+#             O_index = residue_id_filter[O_id]
+#             residue_id_filter[C_id:-2] = residue_id_filter[O_id+1:]
+#             residue_id_filter[-2] = C_index
+#             residue_id_filter[-1] = O_index
+#         residue_idcs_filter.append(residue_id_filter)
+#     residue_idcs_filter = np.concatenate(residue_idcs_filter)
+#     return residue_idcs_filter
 
 def load_model(config: Dict, model_dir: Optional[Path] = None, model_config: Optional[Dict] = None):
     if model_dir is None:
         assert model_config is not None, "You should provide either 'model_config_file' or 'model_dir' in the configuration file"
-        model_dir = os.path.join(model_config.get("root"), model_config.get("run_name"))
+        model_dir = os.path.join(model_config.get("root"), model_config.get("fine_tuning_run_name", model_config.get("run_name")))
     model_name = config.get("model_relative_weights", "best_model.pth")
     
     global_config = os.path.join(model_dir, "config.yaml")
@@ -627,7 +575,7 @@ def load_model(config: Dict, model_dir: Optional[Path] = None, model_config: Opt
         model_name=model_name,
     )
 
-    model = model.to(config.get("model_device", "cuda" if torch.cuda.is_available() else "cpu")).eval()
+    model = model.to(config.get("model_device", "cuda" if torch.cuda.is_available() else "cpu"))
     return model, training_model_config
     
 def get_edge_index(positions: torch.Tensor, r_max: float):
@@ -642,6 +590,7 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
 
     bead_pos = dataset[DataDict.BEAD_POSITION][0]
     bead_types = dataset[DataDict.BEAD_TYPES]
+    bead_residcs = torch.from_numpy(dataset[DataDict.BEAD_RESIDCS]).long()
     if use_only_bb_beads:
         bead_pos = bead_pos[dataset[DataDict.CA_BEAD_IDCS]]
         bead_types = bead_types[dataset[DataDict.CA_BEAD_IDCS]]
@@ -656,6 +605,7 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
         AtomicDataDict.POSITIONS_KEY: bead_pos,
         f"{AtomicDataDict.POSITIONS_KEY}_slices": torch.tensor([0, len(bead_pos)]),
         AtomicDataDict.ATOM_TYPE_KEY: bead_types,
+        "edge_class": bead_residcs,
         AtomicDataDict.ORIG_EDGE_INDEX_KEY: edge_index,
         AtomicDataDict.EDGE_INDEX_KEY: edge_index,
         AtomicDataDict.BATCH_KEY: batch,
@@ -815,18 +765,10 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
 
 def build_minimizer_data(dataset: Dict, device='cpu'):
     no_cappings_filter = [x.split('_')[0] not in ['ACE', 'NME'] for x in dataset[DataDict.ATOM_NAMES]]
-    unique_residcs = np.array([x[0] for x in groupby(dataset[DataDict.ATOM_RESIDCS][no_cappings_filter])])
-    chainidcs = dataset[DataDict.BEAD_CHAINIDCS]
+    unique_resnums = np.array([x[0] for x in groupby(dataset[DataDict.ATOM_RESNUMBERS][no_cappings_filter])])
+    chainidcs = dataset[DataDict.BEAD_CHAINIDCS][dataset[DataDict.CA_BEAD_IDCS]]
     ca_pos = dataset[DataDict.CA_ATOM_POSITION][0]
-    n_dih = dataset[DataDict.CA_BEAD_IDCS].sum()
-
-    atom_pos_pred = cat_interleave(
-        [
-            np.zeros_like(ca_pos),
-            ca_pos,
-            np.zeros_like(ca_pos),
-        ],
-    ).astype(np.float64)
+    n_residues = dataset[DataDict.CA_BEAD_IDCS].sum()
 
     bond_idcs = []
     bond_eq_val = []
@@ -840,8 +782,8 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
     angle_eq_val = []
     angle_tolerance = []
 
-    for id_, resid, next_resid in zip(range(0, n_dih-1), unique_residcs[:-1], unique_residcs[1:]):
-        atom_id = id_ * 3 # N
+    for id_, resnum, next_resnum in zip(range(0, n_residues-1), unique_resnums[:-1], unique_resnums[1:]):
+        atom_id = id_ * 4 # N
         
         bond_idcs.append([atom_id, atom_id+1])
         bond_eq_val.append(1.45) # N - CA bond length
@@ -850,45 +792,58 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
         bond_idcs.append([atom_id+1, atom_id+2])
         bond_eq_val.append(1.52) # CA - C bond length
         bond_tolerance.append(0.03) # Permissible values [1.49, 1.55]
+
+        bond_idcs.append([atom_id+2, atom_id+3])
+        bond_eq_val.append(1.24) # C - O bond length
+        bond_tolerance.append(0.02) # Permissible values [1.22, 1.26]
         
-        if resid == next_resid - 1 and chainidcs[id_] == chainidcs[id_+1]:
-            bond_idcs.append([atom_id+1, atom_id+4])
+        if resnum == next_resnum - 1 and chainidcs[id_] == chainidcs[id_+1]:
+            bond_idcs.append([atom_id+1, atom_id+5])
             bond_eq_val.append(3.81) # CA - CA bond length
             bond_tolerance.append(0.1) # Permissible values [1.71, 1.91]
-            ca_bond_idcs.append([atom_id+1, atom_id+4])
-            ca_bond_eq_val.append(3.81) # CA - CA bond length
-            ca_bond_tolerance.append(0.03) # Permissible values [1.78, 1.84]
 
-            bond_idcs.append([atom_id+2, atom_id+3])
+            bond_idcs.append([atom_id+2, atom_id+4])
             bond_eq_val.append(1.34) # C - N bond length
             bond_tolerance.append(0.03) # Permissible values [1.31, 1.37]
 
         angle_idcs.append([atom_id, atom_id+1, atom_id+2])
         angle_eq_val.append(1.9216075) # N - CA - C angle value
         angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
+
+        angle_idcs.append([atom_id+1, atom_id+2, atom_id+3])
+        angle_eq_val.append(2.0944) # CA - C - O angle value
+        angle_tolerance.append(0.052)  # Tolerance 0.035 rad ~ 3 deg
         
-        if resid == next_resid - 1 and chainidcs[id_] == chainidcs[id_+1]:
-            angle_idcs.append([atom_id+1, atom_id+2, atom_id+3])
+        if resnum == next_resnum - 1 and chainidcs[id_] == chainidcs[id_+1]:
+            angle_idcs.append([atom_id+1, atom_id+2, atom_id+4])
             angle_eq_val.append(2.0350539) # CA - C - N angle value
             angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
         
-            angle_idcs.append([atom_id+2, atom_id+3, atom_id+4])
+            angle_idcs.append([atom_id+2, atom_id+4, atom_id+5])
             angle_eq_val.append(2.1275564) # C - N - CA angle value
             angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
     
-    if n_dih > 0:
-        atom_id = (id_ + 1) * 3 # N    
+    if n_residues > 0:
+        atom_id = (id_ + 1) * 4 # N    
         bond_idcs.append([atom_id, atom_id+1])
         bond_eq_val.append(1.45) # N - CA bond length
         bond_tolerance.append(0.03) # Permissible values [1.42, 1.48]
 
-        bond_idcs.append([atom_id+1, atom_id+2])
-        bond_eq_val.append(1.52) # CA - C bond length
-        bond_tolerance.append(0.03) # Permissible values [1.49, 1.55]
+        # bond_idcs.append([atom_id+1, atom_id+2])
+        # bond_eq_val.append(1.52) # CA - C bond length
+        # bond_tolerance.append(0.03) # Permissible values [1.49, 1.55]
 
-        angle_idcs.append([atom_id, atom_id+1, atom_id+2])
-        angle_eq_val.append(1.9216075) # N - CA - C angle value
-        angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
+        # bond_idcs.append([atom_id+2, atom_id+3])
+        # bond_eq_val.append(1.24) # C - O bond length
+        # bond_tolerance.append(0.02) # Permissible values [1.22, 1.26]
+
+        # angle_idcs.append([atom_id, atom_id+1, atom_id+2])
+        # angle_eq_val.append(1.9216075) # N - CA - C angle value
+        # angle_tolerance.append(0.035)  # Tolerance 0.035 rad ~ 2 deg
+
+        # angle_idcs.append([atom_id+1, atom_id+2, atom_id+3])
+        # angle_eq_val.append(2.0944) # CA - C - O angle value
+        # angle_tolerance.append(0.052)  # Tolerance 0.035 rad ~ 3 deg
     
     # ----------------------------- #
 
@@ -908,7 +863,6 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
     movable_pos_idcs[np.arange(len(ca_pos)) * 3 + 1] = False
 
     data = {
-        "pos": atom_pos_pred,
         "bond_idcs": bond_idcs,
         "bond_eq_val": bond_eq_val,
         "bond_tolerance": bond_tolerance,
@@ -933,25 +887,30 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
     return data
 
 def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads: bool, device: str = 'cpu'):
-    no_cappings_filter = [x.split('_')[0] not in ['ACE', 'NME'] for x in dataset[DataDict.ATOM_NAMES]]
+    no_cappings_filter = [rn not in ['ACE', 'NME'] for rn in dataset[DataDict.ATOM_RESNAMES]]
     unique_residcs = np.array([x[0] for x in groupby(dataset[DataDict.ATOM_RESIDCS][no_cappings_filter])])
-    n_atom_idcs = np.array([an.split('_')[-1]=='N' and an.split('_')[0] not in ['ACE', 'NME'] for an in dataset[DataDict.ATOM_NAMES]])
-    ca_atom_idcs = np.array([an.split('_')[-1] in ['CA'] for an in dataset[DataDict.ATOM_NAMES]])
-    c_atom_idcs = np.array([an.split('_')[-1]=='C' and an.split('_')[0] not in ['ACE', 'NME'] for an in dataset[DataDict.ATOM_NAMES]])
+
+    n_atom_idcs =  np.array([an=='N'  and rn not in ['ACE', 'NME'] for an, rn in zip(dataset[DataDict.ATOM_NAMES], dataset[DataDict.ATOM_RESNAMES])])
+    ca_atom_idcs = dataset[DataDict.CA_ATOM_IDCS]
+    c_atom_idcs =  np.array([an=='C'  and rn not in ['ACE', 'NME'] for an, rn in zip(dataset[DataDict.ATOM_NAMES], dataset[DataDict.ATOM_RESNAMES])])
+    o_atom_idcs =  np.array([an=='O'  and rn not in ['ACE', 'NME'] for an, rn in zip(dataset[DataDict.ATOM_NAMES], dataset[DataDict.ATOM_RESNAMES])])
 
     ca_pos_pred = dataset[DataDict.ATOM_POSITION_PRED][0, ca_atom_idcs]
     n_pos_pred = dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs]
     c_pos_pred = dataset[DataDict.ATOM_POSITION_PRED][0, c_atom_idcs]
+    o_pos_pred = dataset[DataDict.ATOM_POSITION_PRED][0, o_atom_idcs]
 
-    ca_names = dataset[DataDict.ATOM_NAMES][dataset[DataDict.CA_ATOM_IDCS]]
-    n_names = dataset[DataDict.ATOM_NAMES][n_atom_idcs]
-    c_names = dataset[DataDict.ATOM_NAMES][c_atom_idcs]
+    ca_names = dataset[DataDict.ATOM_NAMES][ca_atom_idcs]
+    n_names =  dataset[DataDict.ATOM_NAMES][n_atom_idcs]
+    c_names =  dataset[DataDict.ATOM_NAMES][c_atom_idcs]
+    o_names =  dataset[DataDict.ATOM_NAMES][o_atom_idcs]
 
     atom_pos_pred = cat_interleave(
         [
             n_pos_pred,
             ca_pos_pred,
             c_pos_pred,
+            o_pos_pred,
         ],
     ).astype(np.float64)
 
@@ -960,23 +919,28 @@ def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads
             n_names,
             ca_names,
             c_names,
+            o_names,
         ],
     )
 
     residue_contains_n = []
     residue_contains_c = []
+    residue_contains_o = []
     for resid in unique_residcs:
         residue_atom_names = [an.split('_')[-1] for an in dataset[DataDict.ATOM_NAMES][dataset[DataDict.ATOM_RESIDCS] == resid]]
         residue_contains_n.append('N' in residue_atom_names)
         residue_contains_c.append('C' in residue_atom_names)
+        residue_contains_o.append('O' in residue_atom_names)
     residue_contains_n = np.array(residue_contains_n)
     residue_contains_c = np.array(residue_contains_c)
+    residue_contains_o = np.array(residue_contains_o)
     
     real_bb_atom_idcs = cat_interleave(
         [
             residue_contains_n,
             np.ones_like(residue_contains_n, dtype=bool),
             residue_contains_c,
+            residue_contains_o,
         ],
     )
 
@@ -985,6 +949,7 @@ def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads
         "atom_names": atom_names,
         "n_atom_idcs": n_atom_idcs,
         "c_atom_idcs": c_atom_idcs,
+        "o_atom_idcs": o_atom_idcs,
         "real_bb_atom_idcs": real_bb_atom_idcs,
     }
 
@@ -997,17 +962,17 @@ def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads
         dih_eq_val = []
         chainidcs = dataset[DataDict.BEAD_CHAINIDCS]
         for id_, dih_val in zip(range(0, len(dih)), dih):
-            atom_id = id_ * 3 # start from N atom of id_ residue (N1 CA1 C1 N2 CA2 C2 ...)
+            atom_id = id_ * 4 # start from N atom of id_ residue (N1 CA1 C1 O1 N2 CA2 C2 O2...)
             if id_ > 0 and chainidcs[id_-1] == chainidcs[id_]:
                 # Phi
                 dih_idcs.append([atom_id-1, atom_id, atom_id+1, atom_id+2])
                 dih_eq_val.append(dih_val[0])
             if id_ < len(dih)-1 and chainidcs[id_] == chainidcs[id_+1]:
                 # Psi
-                dih_idcs.append([atom_id, atom_id+1, atom_id+2, atom_id+3])
+                dih_idcs.append([atom_id, atom_id+1, atom_id+2, atom_id+4])
                 dih_eq_val.append(dih_val[1])
                 # Peptide bond
-                dih_idcs.append([atom_id+1, atom_id+2, atom_id+3, atom_id+4])
+                dih_idcs.append([atom_id+1, atom_id+2, atom_id+4, atom_id+5])
                 dih_eq_val.append(np.pi)
         dih_idcs = np.array(dih_idcs)
         dih_eq_val = np.array(dih_eq_val)
