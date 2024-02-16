@@ -183,7 +183,8 @@ class HierarchicalBackmappingModule(GraphModuleMixin, torch.nn.Module):
             if layer_idx == self.num_layers - 1:
                 # ^ means we're doing the last layer
                 # No more TPs follow this, so only need self.eq_out_irreps
-                ir_out = self.eq_out_irreps
+                # ir_out = self.eq_out_irreps <- OLD
+                ir_out = o3.Irreps([ir for ir in env_embed_irreps if ir.ir.l <= self.eq_out_irreps.lmax])
 
             # Prune impossible paths
             ir_out = o3.Irreps(
