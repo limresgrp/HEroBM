@@ -1,7 +1,6 @@
 import numpy as np
 from typing import Dict, List
 from heqbm.mapper import Mapper
-from heqbm.mapper.bead import Bead
 from heqbm.utils import DataDict
 
 class HierarchicalMapper(Mapper):
@@ -36,65 +35,37 @@ class HierarchicalMapper(Mapper):
 
     def __init__(self, config: Dict) -> None:
         super().__init__(config=config)
-    
-    def _clear_extra_mappings(self):
-        pass
-    
-    def _initialize_conf_extra_mappings(self):
-        pass
-
-    def _store_extra_mappings(self):
-        pass
-    
-    def initialize_extra_map_impl(self):
-        pass
-    
-    def update_extra_map_impl(self, atom_name: str, bead: Bead, _id: int):
-        pass
-    
-    def store_extra_map_impl(self):
-        pass
 
     def initialize_extra_pos_impl(self):
         self.bead2atom_relative_vectors_list = []
     
-    def update_extra_pos_impl(self, pos, bead_pos):
-        frame_bead2atom_relative_vectors = np.zeros((self.num_beads, self._max_bead_atoms, 3), dtype=float)
-        anchor_pos = pos[self._level_idcs_anchor_mask.max(axis=0)]
-        anchor_pos[self._level_idcs_anchor_mask[2:].max(axis=0) == -1] = np.repeat(bead_pos, np.sum(self._level_idcs_anchor_mask[2:].max(axis=0) == -1, axis=-1), axis=0)
-        frame_bead2atom_relative_vectors[self.bead2atom_idcs_mask_instance] = pos[self.bead2atom_idcs_instance[self.bead2atom_idcs_mask_instance]] - anchor_pos[self.bead2atom_idcs_mask_instance]
+    def update_extra_pos_impl(self, pos):
+        frame_bead2atom_relative_vectors = np.zeros((self.num_beads, self.bead_reconstructed_size, 3), dtype=float)
+        reconstructed_atom_pos = pos[self.bead2atom_reconstructed_idcs[self._level_idcs_mask.max(axis=0)]]
+        anchor_pos = pos[self._level_idcs_anchor_mask.max(axis=0)[self._level_idcs_mask.max(axis=0)]]
+        frame_bead2atom_relative_vectors[self.bead2atom_reconstructed_idcs_mask] = reconstructed_atom_pos - anchor_pos
         self.bead2atom_relative_vectors_list.append(frame_bead2atom_relative_vectors)
 
     def store_extra_pos_impl(self):
         self._bead2atom_relative_vectors = np.stack(self.bead2atom_relative_vectors_list, axis=0)
     
     def compute_extra_map_impl(self):
-        self._level_idcs_mask = np.zeros((self._max_bead_atoms + 1, self.num_beads, self._max_bead_atoms), dtype=bool)
-        self._level_idcs_anchor_mask = -np.ones((self._max_bead_atoms + 1, self.num_beads, self._max_bead_atoms), dtype=int)
+        self._level_idcs_mask = np.zeros((self.bead_reconstructed_size + 1, self.num_beads, self.bead_reconstructed_size), dtype=bool)
+        self._level_idcs_anchor_mask = -np.ones((self.bead_reconstructed_size + 1, self.num_beads, self.bead_reconstructed_size), dtype=int)
 
         for i, bead in enumerate(self._ordered_beads):
-            li = np.array(bead._local_index)
-            li_prev = np.array(bead._local_index_prev)
-            anchor_idcs = np.array([np.argwhere(li == x)[0].item() if len(np.argwhere(li == x)) >= 1 else 0 for x in li_prev])
+            li = bead._all_local_index
+            mask = li >= 0
+            li_masked = li[mask]
+            li_prev = bead._all_local_index_prev
+            li_prev_masked = li_prev[mask]
+            anchor_idcs = np.array([np.argwhere(li_masked == x)[0].item() if len(np.argwhere(li_masked == x)) == 1 else -1 for x in li_prev_masked])
             
-            for level in range(0, self._max_bead_atoms + 1):
-                bead_local_filter = np.argwhere(np.array(bead._hierarchy_levels) == level)
+            for level in range(0, self.bead_reconstructed_size + 1):
+                bead_local_filter = np.argwhere(np.array(bead._all_hierarchy_levels[mask]) == level)
                 if len(bead_local_filter) > 0:
                     bead_local_filter = bead_local_filter.flatten()
                     self._level_idcs_mask[level, i, bead_local_filter] = True
-                    self._level_idcs_anchor_mask[level, i, bead_local_filter] = self._bead2atom_idcs_instance[i, anchor_idcs[bead_local_filter]]
-    
-    def initialize_extra_map_impl_cg(self):
-        pass
-
-    def update_extra_map_impl_cg(
-        self,
-        bead_atom_names: np.ndarray,
-        bead_name: str,
-        mapping_n: int,
-        atom_index_offset: int
-    ):
-        pass
-
-    def store_extra_map_impl_cg(self):
-        pass
+                    filtered_anchor_idcs = anchor_idcs[bead_local_filter]
+                    filtered_anchor_idcs[filtered_anchor_idcs == -1] = bead_local_filter[filtered_anchor_idcs == -1]
+                    self._level_idcs_anchor_mask[level, i, bead_local_filter] = bead._reconstructed_atom_idcs[filtered_anchor_idcs]

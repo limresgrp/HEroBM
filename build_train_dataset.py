@@ -12,9 +12,9 @@ from heqbm.utils import DataDict
 torch.set_default_dtype(torch.float32)
 
 # EXAMPLE RUNS #
-# python build_train_dataset.py -m martini3 -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.valid.pdb -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/martini3/valid
-# python build_train_dataset.py -m martini3 -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.6k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/martini3/train
 # python build_train_dataset.py -m martini3_lipids -i /storage_common/angiod/POPC/ -t /storage_common/angiod/POPC/ -if gro -s "resname POPC" -tf trr -l 100 -o /storage_common/angiod/POPC/backmapping/npz/membrane/train/
+# python build_train_dataset.py -m martini3_bbcommon -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/martini3.bbcommon.2.9k/train
+# python build_train_dataset.py -m ca -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/ca.2.9k/train
 
 YOUR_PATH_TO_DATA_FOLDER = "/storage_common/angiod/"
 
@@ -29,10 +29,11 @@ def get_ds(
         frame_limit: int = np.inf,
         extra_kwargs: Optional[dict] = None,
         mapping: Optional[HierarchicalMapper] = None,
+        keep_hydrogens: bool = True,
     ):
     conf = {
     "simulation_is_cg": False,
-    "keep_hydrogens": True,
+    "keep_hydrogens": keep_hydrogens,
     "structure_filename": filename,
     "mapping_folder": mapping_folder,
     }
@@ -59,10 +60,11 @@ def get_ds(
         k: v for k, v in dataset.items() if k in [
             DataDict.ATOM_POSITION, DataDict.BEAD_POSITION, DataDict.ATOM_NAMES,
             DataDict.BEAD_NAMES, DataDict.ATOM_TYPES, DataDict.BEAD_TYPES,
-            DataDict.BEAD2ATOM_RELATIVE_VECTORS, DataDict.BB_PHIPSI,
-            DataDict.LEVEL_IDCS_MASK, DataDict.LEVEL_IDCS_ANCHOR_MASK,
-            DataDict.BEAD2ATOM_IDCS, DataDict.CA_NEXT_DIRECTION,
-            DataDict.BOND_IDCS, DataDict.ANGLE_IDCS, DataDict.CELL, DataDict.PBC
+            DataDict.BEAD2ATOM_RELATIVE_VECTORS, DataDict.BEAD_RESIDCS,
+            DataDict.BB_PHIPSI, DataDict.LEVEL_IDCS_MASK,
+            DataDict.LEVEL_IDCS_ANCHOR_MASK, DataDict.BEAD2ATOM_IDCS,
+            DataDict.CA_NEXT_DIRECTION, DataDict.BOND_IDCS,
+            DataDict.ANGLE_IDCS, DataDict.CELL, DataDict.PBC
         ]
     }
 
@@ -98,14 +100,15 @@ def build_dataset(config):
                 extra_kwargs=config.extrakwargs,
                 keep_backbone=True,
                 mapping=mapping,
+                keep_hydrogens=True,
             )
 
             print(filename_out, npz_ds[DataDict.ATOM_POSITION].shape)
             if npz_ds is not None:
                 np.savez(filename_out, **npz_ds)
                 config_update_text = f'''Update the training configuration file with the following snippet (excluding quotation marks):
-                \n"\neq_out_irreps: {mapping._max_bead_atoms}x1o\n\ntype_names:\n'''
-                for bt in [x[0] for x in sorted(mapping.bead_types.items(), key=lambda x: x[1])]:
+                \n"\neq_out_irreps: {mapping.bead_reconstructed_size}x1o\n\ntype_names:\n'''
+                for bt in [x[0] for x in sorted(mapping.bead_types_dict.items(), key=lambda x: x[1])]:
                     config_update_text += f'- {bt}\n'
                 config_update_text += '"'
                 print(config_update_text)

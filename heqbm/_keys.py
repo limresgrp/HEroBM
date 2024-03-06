@@ -30,14 +30,20 @@ BB_ATOM_POSITION_MINIMISATION_TRAJ: Final[str] = "bb_pos_minimisation_traj"
 
 RESNAMES: Final[str] = "resnames"
 RESNUMBERS: Final[str] = "resnumbers"
-ATOM_NAMES: Final[str] = "atom_names"
+
 ATOM_RESNAMES: Final[str] = "atom_resnames"
-BEAD_NAMES: Final[str] = "bead_names"
+ATOM_NAMES: Final[str] = "atom_names"
+
+BEAD_IDNAMES: Final[str] = "bead_idnames"
 BEAD_RESNAMES: Final[str] = "bead_resnames"
+BEAD_NAMES: Final[str] = "bead_names"
+
 ATOM_RESIDCS: Final[str] = "atom_residcs"
 BEAD_RESIDCS: Final[str] = "bead_residcs"
+
 ATOM_RESNUMBERS: Final[str] = "atom_resnumbers"
 BEAD_RESNUMBERS: Final[str] = "bead_resnumbers"
+
 NUM_ATOMS: Final[str] = "num_atoms"
 NUM_BEADS: Final[str] = "num_beads"
 NUM_RESIDUES: Final[str] = "num_residues"

@@ -1,12 +1,12 @@
 import re
 import copy
 import itertools
+import MDAnalysis
 import numpy as np
 from typing import List, Optional
 from MDAnalysis.core.groups import Atom
+from heqbm.utils import DataDict
 from heqbm.utils.atomType import get_type_from_name
-
-UNSET_V_VALUE = -1
 
 
 class BeadMappingAtomSettings:
@@ -22,11 +22,16 @@ class BeadMappingAtomSettings:
         self._has_cm: bool = False
 
         self._has_to_be_reconstructed: bool = False
-        self._hierarchy_level: int = 0
+        self._hierarchy_level: int = -1
         self._hierarchy_name: str = ''
         self._hierarchy_previous_name: str = ''
 
+        # Relative index that keeps track of the order in which atoms are reconstructed inseide the residue.
+        # _local_index = 0 is the atom with lowest hierarchy level and name A.
+        # _local_index = 1 is the atom with lowest hierarchy level and name B OR the atom with second lowest hierarchy level and name A.
+        # and so on...
         self._local_index: int = -1
+        # Relative index of the atom to e used as anchor point when reconstructing this atom.
         self._local_index_prev: int = -1
 
         self._relative_weight: float = 1.
@@ -148,21 +153,20 @@ class BeadMappingAtomSettings:
 
 class BeadMappingSettings:
 
-    def __init__(self, bead_name, num_shared_beads: int = 1) -> None:
-        self._bead_name = bead_name
+    def __init__(self, bead_idname, num_shared_beads: int = 1) -> None:
+        self._bead_idname: str = bead_idname
         self._num_shared_beads = num_shared_beads
 
-        self._bead_name: str
         self._atom_settings: List[BeadMappingAtomSettings] = []
         self._bead_levels: set[int] = set()       # keep track of all hierarchy levels in the bead
         self._bead_positions: dict[int, int] = {} # for each hierarchy level, keep track of maximum position value
     
     @property
-    def bead_atoms(self):
+    def bead_reconstructed_size(self):
         return sum([atom_setting._has_to_be_reconstructed for atom_setting in self._atom_settings])
     
     @property
-    def bead_cm_atoms(self):
+    def bead_all_size(self):
         return len(self._atom_settings)
 
     def add_atom_settings(self, bmas: BeadMappingAtomSettings):
@@ -195,6 +199,8 @@ class BeadMappingSettings:
         )
     
     def get_hierarchy_level_offset(self, hierarchy_level):
+        if hierarchy_level <= -1:
+            return -1
         offset = 0
         for bead_level in self._bead_levels:
             if bead_level >= hierarchy_level:
@@ -217,22 +223,57 @@ class BeadMappingSettings:
 
 class Bead:
 
-    name: str
-    type: int
+    def __init__(
+            self,
+            idname: str,
+            type: int,
+            bead2atoms: List[List[str]], # Could have multiple configuration files with different atom namings
+            weigth_based_on: str,
+            keep_hydrogens: bool = True,
+            resindex: int = 0,
+            resnum: int = 0,
+            chainid: str = 'A',
+    ) -> None:
+        self.idname = idname
+        self.resname, self.name = self.idname.split(DataDict.STR_SEPARATOR)
+        self.type = type # Used by the NN
+        self.resindex = resindex
+        self.resnum = resnum
+        self.chainid = chainid
+
+        self._is_complete: bool = False
+        self._is_newly_created: bool = True
+        self.weigth_based_on = weigth_based_on
+        self.keep_hydrogens = keep_hydrogens
+        
+        self._config_ordered_atom_idnames: List[List[str]] = bead2atoms
+        self._missing_atom_idnames: List[List[str]] = copy.deepcopy(bead2atoms)
+        self._eligible_atom_idnames: List[str] = set(itertools.chain(*self._missing_atom_idnames))
+        
+        self._reconstructed_atom_idnames: List[str]     = []
+        self._reconstructed_atom_idcs: List[int]        = []
+        self._all_hierarchy_levels: List[int] = []
+        self._all_local_index: List[int]      = []
+        self._all_local_index_prev: List[int] = []
+
+        self._all_atoms: List[Atom]         = []
+        self._all_atom_idnames: List[str]   = []
+        self._all_atom_idcs: List[int]      = []
+        self._all_atom_weights: List[float] = []
 
     @property
-    def n_atoms(self):
-        assert len(self._atoms) == len(self._atom_idcs), \
-            f"Bead of type {self.type} has a mismatch between the number of _atoms ({len(self._atoms)})" \
-            f"and the number of _atom_idcs ({self._atom_idcs})"
-        return len(self._atoms)
+    def n_reconstructed_atoms(self):
+        assert len(self._reconstructed_atom_idnames) == len(self._reconstructed_atom_idcs), \
+            f"Bead of type {self.type} has a mismatch between the number of _reconstructed_atoms_idnames ({len(self._reconstructed_atom_idnames)})" \
+            f"and the number of _reconstructed_atom_idcs ({self._reconstructed_atom_idcs})"
+        return len(self._reconstructed_atom_idcs)
     
     @property
-    def n_cm_atoms(self):
-        assert len(self._atom_weights) == len(self._atom_cm_idcs), \
-            f"Bead of type {self.type} has a mismatch between the number of _weights ({len(self._atom_weights)})" \
-            f"and the number of _atom_cm_idcs ({self._atom_cm_idcs})"
-        return len(self._atom_cm_idcs)
+    def n_all_atoms(self):
+        assert len(self._all_atoms) == len(self._all_atom_idcs), \
+            f"Bead of type {self.type} has a mismatch between the number of _all_atoms ({len(self._all_atoms)})" \
+            f"and the number of _all_atom_idcs ({self._all_atom_idcs})"
+        return len(self._all_atom_idcs)
     
     @property
     def is_newly_created(self):
@@ -241,45 +282,52 @@ class Bead:
     @property
     def is_complete(self):
         return self._is_complete
-
-    def __init__(
-            self,
-            name: str,
-            type: int,
-            atoms: List[str],
-            weigth_based_on: str,
-            keep_hydrogens: bool = False,
-    ) -> None:
-        self.name = name
-        self.type = type
-        self._is_complete: bool = False
-        self._is_newly_created: bool = True
-        self.weigth_based_on = weigth_based_on
-        self.keep_hydrogens = keep_hydrogens
-        
-        self._missing_atoms_list: List[List[str]] = atoms
-        self._config_ordered_atoms: List[List[str]] = copy.deepcopy(atoms)
-        self._eligible_atoms: List[str] = set(itertools.chain(*self._missing_atoms_list))
-        self._atom_idnames: List[str] = []
-        self._atom_cm_idnames: List[str] = []
-        self._atoms: List[Atom] = []
-        self._atom_idcs: List[int] = []
-        self._atom_cm_idcs: List[int] = []
-        self._atom_weights: List[float] = []
-
-        self._hierarchy_levels: List[int] = []
-        self._local_index: List[int] = []
-        self._local_index_prev: List[int] = []
     
+    @property
+    def _all_atom_positions(self):
+        if len(self._all_atoms) > 0:
+            return np.stack([atom.position for atom in self._all_atoms], axis=0)
+        return None
+    
+    @property
+    def _all_atom_residcs(self):
+        return np.array([self.resindex] * self.n_all_atoms)
+    
+    @property
+    def _all_atom_resnums(self):
+        return np.array([self.resnum] * self.n_all_atoms)
+    
+    @property
+    def _all_atom_chainidcs(self):
+        return np.array([self.chainid] * self.n_all_atoms)
     
     def is_missing_atom(self, atom_idname: str):
-        return atom_idname in self._eligible_atoms and atom_idname not in self._atom_cm_idnames
+        return atom_idname in self._eligible_atom_idnames and atom_idname not in self._all_atom_idnames
     
-    def update(self, atom_idname: str, atom: Optional[Atom], _id: int, bmas: BeadMappingAtomSettings):
+    def update(
+        self,
+        atom_idname: str,
+        _id: int,
+        bmas: BeadMappingAtomSettings,
+        atom: Optional[Atom] = None,
+    ):
+        if self._is_newly_created and atom is not None:
+            self.resindex = atom.resindex
+            self.resnum = atom.resnum
+            try:
+                self.chainid = atom.chainID
+            except MDAnalysis.exceptions.NoDataError:
+                self.chainid = 'A'
         self._is_newly_created = False
-        assert atom_idname in self._eligible_atoms, f"Trying to update bead {self.type} with atom {atom_idname} that does not belong to it."
+        assert atom_idname in self._eligible_atom_idnames, f"Trying to update bead {self.type} with atom {atom_idname} that does not belong to it."
+
+        if atom is not None:
+            self._all_atoms.append(atom)
+        self._all_atom_idnames.append(atom_idname)
+        self._all_atom_idcs.append(_id)
 
         # All atoms without the '!' flag contribute to the bead position
+        # Those with the '!' flag appear with weight 0
         weight = 0.
         if bmas.has_cm:
             weight = 1. * bmas.is_cm
@@ -293,24 +341,21 @@ class Bead:
             else:
                 raise Exception(f"{self.weigth_based_on} is not a valid value for 'weigth_based_on'. Use either 'mass' or 'same'")
         weight *= bmas.relative_weight
-        self._atom_cm_idnames.append(atom_idname)
-        self._atom_cm_idcs.append(_id)
-        self._atom_weights.append(weight)
+        self._all_atom_weights.append(weight)
 
         # Only atoms with hierarchy information appear as atoms of the bead.
         # Atoms without hierarchy information are not reconstructed.
+        self._all_hierarchy_levels.append(bmas.hierarchy_level)
+        self._all_local_index.append(bmas._local_index)
+        self._all_local_index_prev.append(bmas._local_index_prev)
+        
         if bmas.has_to_be_reconstructed:
-            self._atom_idnames.append(atom_idname)
-            self._atoms.append(atom)
-            self._atom_idcs.append(_id)
-            
-            self._hierarchy_levels.append(bmas.hierarchy_level)
-            self._local_index.append(bmas._local_index)
-            self._local_index_prev.append(bmas._local_index_prev)
+            self._reconstructed_atom_idnames.append(atom_idname)
+            self._reconstructed_atom_idcs.append(_id)
 
         invalid_confs = []
         atom_mapped = not bmas.has_to_be_reconstructed
-        for conf_id, _missing_atoms in enumerate(self._missing_atoms_list):
+        for conf_id, _missing_atoms in enumerate(self._missing_atom_idnames):
             if atom_idname in _missing_atoms:
                 _missing_atoms.remove(atom_idname)
                 atom_mapped = True
@@ -318,7 +363,7 @@ class Bead:
                 invalid_confs.append(conf_id)
         if not atom_mapped:
             raise ValueError(f"Trying to update bead {self.type} with atom {atom_idname} that is already mapped in this bead.")
-        if any([not [ma for ma in _missing_atoms if self.keep_hydrogens or get_type_from_name(ma) != 1] for _missing_atoms in self._missing_atoms_list]):
+        if any([not [ma for ma in _missing_atoms if self.keep_hydrogens or get_type_from_name(ma) != 1] for _missing_atoms in self._missing_atom_idnames]):
             self.complete()
         return invalid_confs
     
@@ -332,70 +377,65 @@ class Bead:
         # We need consistency among atomistic and CG, otherwise the NN trained on the order of the
         # atomistic pdbs may swap the prediction order in the CG if atoms appear in different order in the config
         # w.r.t. the order in the pdbs used for training.
-        atom_idname = np.array(self._atom_idnames)
-        config_ordered_atom_idnames, atom_idnames_sorted_idcs = self.sort_atom_idnames(atom_idname)
-        sorting_filter = atom_idnames_sorted_idcs[np.searchsorted(atom_idname[atom_idnames_sorted_idcs], config_ordered_atom_idnames)]
+        self._reconstructed_atom_idnames = np.array(self._reconstructed_atom_idnames)
 
-        self._atom_idnames = atom_idname[sorting_filter].tolist()
-        self._atoms = np.array(self._atoms)[sorting_filter].tolist()
-        self._atom_idcs = np.array(self._atom_idcs)[sorting_filter].tolist()
-        self._hierarchy_levels = np.array(self._hierarchy_levels)[sorting_filter].tolist()
-        self._local_index = np.array(self._local_index)[sorting_filter].tolist()
-        self._local_index_prev = np.array(self._local_index_prev)[sorting_filter].tolist()
+        # ------------------------------------------------------------------------------------------------------------------ #
 
-        atom_cm_idnames = np.array(self._atom_cm_idnames)
-        config_ordered_atom_cm_idnames, atom_cm_idnames_sorted_idcs = self.sort_atom_idnames(atom_cm_idnames)
-        sorting_cm_filter = atom_cm_idnames_sorted_idcs[np.searchsorted(atom_cm_idnames[atom_cm_idnames_sorted_idcs], config_ordered_atom_cm_idnames)]
-        self._atom_weights = np.array(self._atom_weights)[sorting_cm_filter].tolist()
-        self._atom_cm_idcs = np.array(self._atom_cm_idcs)[sorting_cm_filter].tolist()
+        self._all_atom_idnames = np.array(self._all_atom_idnames)
+        
+        config_ordered_all_atom_idnames, all_atom_idnames_sorted_idcs = self.sort_atom_idnames(self._all_atom_idnames)
+        all_sorting_filter = all_atom_idnames_sorted_idcs[np.searchsorted(
+            self._all_atom_idnames[all_atom_idnames_sorted_idcs], config_ordered_all_atom_idnames
+        )]
+        
+        if len(self._all_atoms) > 0:
+            self._all_atoms = np.array(self._all_atoms)[all_sorting_filter]
+        self._all_atom_idnames = np.array(self._all_atom_idnames)[all_sorting_filter]
+        self._all_atom_idcs_orig = np.array(self._all_atom_idcs)
+        self._all_atom_idcs = np.copy(self._all_atom_idcs_orig)[all_sorting_filter]
+        self._all_atom_weights_orig = np.array(self._all_atom_weights)
+        self._all_atom_weights = np.copy(self._all_atom_weights_orig)[all_sorting_filter]
+        self._all_hierarchy_levels = np.array(self._all_hierarchy_levels)[all_sorting_filter]
+        self._all_local_index = np.array(self._all_local_index)[all_sorting_filter]
+        self._all_local_index_prev = np.array(self._all_local_index_prev)[all_sorting_filter]
+
+        config_ordered_reconstructed_atom_idnames, reconstructed_atom_idnames_sorted_idcs = self.sort_atom_idnames(self._reconstructed_atom_idnames)
+        reconstructed_sorting_filter = reconstructed_atom_idnames_sorted_idcs[np.searchsorted(
+            self._reconstructed_atom_idnames[reconstructed_atom_idnames_sorted_idcs],
+            config_ordered_reconstructed_atom_idnames
+        )]
+
+        self._reconstructed_atom_idnames = self._reconstructed_atom_idnames[reconstructed_sorting_filter]
+        relative_reconstructed_atom_idcs = np.array(self._reconstructed_atom_idcs)[reconstructed_sorting_filter]
+        self._reconstructed_atom_idcs = self._all_atom_idcs_orig[np.array([np.argwhere(self._all_atom_idcs == x)[0].item() for x in relative_reconstructed_atom_idcs])]
 
         self._is_complete = True
 
-    def sort_atom_idnames(self, atom_idname):
+    def sort_atom_idnames(self, atom_idnames):
         coan_max_len = 0
-        for coa in self._config_ordered_atoms:
-            coan = np.array([x for x in coa if np.isin(x, atom_idname)])
+        for coa in self._config_ordered_atom_idnames:
+            coan = np.array([x for x in coa if np.isin(x, atom_idnames)])
             if len(coan) > coan_max_len:
                 coan_max_len = len(coan)
                 config_ordered_atom_idnames = coan
-        atom_idnames_sorted_idcs = np.argsort(atom_idname)
+        atom_idnames_sorted_idcs = np.argsort(atom_idnames)
         return config_ordered_atom_idnames, atom_idnames_sorted_idcs
-
-
-class RBBead(Bead):
-
-    def __init__(self, name: str, type: int, atoms: List[str]) -> None:
-        super().__init__(name, type, atoms)
-        self._v1_id = UNSET_V_VALUE
-        self._v2_id = UNSET_V_VALUE
-
-    def get_v1_id(self):
-        return self._v1_id
-    
-    def get_v2_id(self):
-        return self._v2_id
-
-    def set_v1_id(self, _id):
-        self._v1_id = _id
-    
-    def set_v2_id(self, _id):
-        self._v2_id = _id
 
 
 class HierarchicalBead(Bead):
 
     def __init__(
             self,
-            name: str,
+            idname: str,
             type: int,
-            atoms: List[str],
+            bead2atoms: List[List[str]],
             weigth_based_on: str,
             keep_hydrogens: bool
     ) -> None:
         super().__init__(
-            name=name,
+            idname=idname,
             type=type,
-            atoms=atoms,
+            bead2atoms=bead2atoms,
             weigth_based_on=weigth_based_on,
             keep_hydrogens=keep_hydrogens
         )

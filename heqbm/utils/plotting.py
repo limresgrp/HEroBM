@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
 from heqbm.utils import DataDict
@@ -39,7 +39,7 @@ def plot_backmapping_impl(
         y=bead_pos[:, 1],
         z=bead_pos[:, 2],
         name='beads',
-        text=dataset[DataDict.BEAD_NAMES],
+        text=dataset[DataDict.BEAD_IDNAMES],
         mode='markers',
         marker=dict(symbol='circle', color='green', opacity=0.5, size=10)
     )
@@ -123,10 +123,13 @@ def plot_backmapping_impl(
 def plot_cg(dataset: Dict, frame_index: int = 0, residue_filter: str = None):
     return plot_cg_impl(
         bead_pos=dataset[DataDict.BEAD_POSITION][frame_index],
-        bead_names=dataset[DataDict.BEAD_NAMES],
+        bead_names=dataset[DataDict.BEAD_IDNAMES],
         bead_types=dataset.get(DataDict.BEAD_TYPES, None),
+        bead_residcs=dataset.get(DataDict.BEAD_RESIDCS, None),
         atom_pos=dataset[DataDict.ATOM_POSITION][frame_index] if DataDict.ATOM_POSITION in dataset else None,
         atom_names=dataset.get(DataDict.ATOM_NAMES, None),
+        atom_types=dataset.get(DataDict.ATOM_TYPES, None),
+        atom_residcs=dataset.get(DataDict.ATOM_RESIDCS, None),
         residue_filter=residue_filter
     )
 
@@ -134,9 +137,12 @@ def plot_cg_impl(
     bead_pos,
     bead_names,
     bead_types=None,
+    bead_residcs=None,
     atom_pos=None,
     atom_names=None,
-    residue_filter: str = None,
+    atom_types=None,
+    atom_residcs=None,
+    residue_filter: Optional[Union[int, str]] = None,
 ):
     subplots = 1
     fig = make_subplots(rows=1, cols=subplots, specs=[[{'type': 'scene'}]*subplots], shared_xaxes=True, horizontal_spacing=0)
@@ -144,7 +150,10 @@ def plot_cg_impl(
     if residue_filter is None:
         bead_fltr = np.array([True for _ in bead_names])
     else:
-        bead_fltr = np.array([bn.split('_')[0] == residue_filter for bn in bead_names])
+        if isinstance(residue_filter, int):
+            bead_fltr = np.array([br == residue_filter for br in bead_residcs])
+        else:
+            bead_fltr = np.array([bn.split('_')[0] == residue_filter for bn in bead_names])
     if bead_fltr.sum() == 0:
         print(f"No residue has name {residue_filter}")
         return
@@ -167,7 +176,10 @@ def plot_cg_impl(
         if residue_filter is None:
             atom_fltr = np.array([True for _ in atom_names])
         else:
-            atom_fltr = np.array([an.split('_')[0] == residue_filter for an in atom_names])
+            if isinstance(residue_filter, int):
+                atom_fltr = np.array([ar == residue_filter for ar in atom_residcs])
+            else:
+                atom_fltr = np.array([an.split('_')[0] == residue_filter for an in atom_names])
         atom_pos = atom_pos[atom_fltr]
         atom_names = atom_names[atom_fltr]
         data.append(
@@ -178,7 +190,7 @@ def plot_cg_impl(
                 name='atoms',
                 text=atom_names,
                 mode='markers',
-                marker=dict(symbol='circle', color=[get_atom_color_from_atom_name(an) for an in atom_names], opacity=0.5, size=5)
+                marker=dict(symbol='circle', color=[get_atom_color_from_atom_type(an) for an in atom_types], opacity=0.5, size=5)
             )
         )
 
@@ -193,7 +205,7 @@ def plot_cg_impl(
             range=range,
             backgroundcolor="rgba(0,0,0,0.2)",
             gridcolor="gray",
-            showbackground=False,
+            showbackground=True,
             showgrid = True,
             showticklabels = False
             ),
@@ -202,7 +214,7 @@ def plot_cg_impl(
             range=range,
             backgroundcolor="rgba(0,0,0,0.1)",
             gridcolor="gray",
-            showbackground=False,
+            showbackground=True,
             showgrid = True,
             showticklabels = False
             ),
@@ -211,7 +223,7 @@ def plot_cg_impl(
             range=range,
             backgroundcolor="rgba(0,0,0,0.4)",
             gridcolor="gray",
-            showbackground=False,
+            showbackground=True,
             showgrid = True,
             showticklabels = False
             ),
@@ -226,6 +238,17 @@ def plot_cg_impl(
     fig.update_layout(layout)
     fig.show()
 
+def get_atom_color_from_atom_type(atom_type: int):
+    colors_dict = {
+        1: 'white',
+        6: 'gray',
+        7: 'blue',
+        8: 'red',
+        16: 'yellow'
+    }
+
+    return colors_dict.get(atom_type, 'black')
+
 def get_atom_color_from_atom_name(atom_name: str):
     colors_dict = {
         'H': 'white',
@@ -235,4 +258,4 @@ def get_atom_color_from_atom_name(atom_name: str):
         'S': 'yellow'
     }
 
-    return colors_dict.get(atom_name.split('_')[1][0], 'black')
+    return colors_dict.get(atom_name[0], 'black')

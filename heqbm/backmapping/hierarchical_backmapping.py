@@ -19,6 +19,7 @@ from heqbm.backmapping.nn.quaternions import get_quaternions, qv_mult
 from heqbm.utils import DataDict
 from heqbm.utils.geometry import get_RMSD, get_angles, get_dihedrals
 from heqbm.utils.backbone import cat_interleave, MinimizeEnergy
+from heqbm.utils.minimisation import minimise
 from heqbm.utils.plotting import plot_cg
 from heqbm.utils.pdbFixer import fixPDB, joinPDBs
 
@@ -150,20 +151,20 @@ class HierarchicalBackmapping:
         backmapping_dataset[DataDict.BEAD_POSITION_ORIGINAL] = np.copy(backmapping_dataset[DataDict.BEAD_POSITION])
         minimizer_data = build_minimizer_data(dataset=backmapping_dataset, device=device)
 
-        unlock_ca = backmapping_dataset[DataDict.CA_BEAD_POSITION].shape[-2] > 0 and (not self.config.get("lock_ca", not self.config.get("simulation_is_cg", True)))
-        if unlock_ca:
-            self.minimizer.minimise(
-                data=minimizer_data,
-                dtau=self.config.get("bb_minimisation_dtau", 1e-1),
-                eps=self.config.get("bb_minimisation_eps_initial", 1e-2),
-                minimise_dih=False,
-                unlock_ca=True,
-                verbose=verbose,
-            )
+        # unlock_ca = backmapping_dataset[DataDict.CA_BEAD_POSITION].shape[-2] > 0 and (not self.config.get("lock_ca", True))
+        # if unlock_ca:
+        #     self.minimizer.minimise(
+        #         data=minimizer_data,
+        #         dtau=self.config.get("bb_minimisation_dtau", 1e-1),
+        #         eps=self.config.get("bb_minimisation_eps_initial", 1e-2),
+        #         minimise_dih=False,
+        #         unlock_ca=True,
+        #         verbose=verbose,
+        #     )
         
-            ca_shifts = minimizer_data["pos"][1::3].detach().cpu().numpy() - backmapping_dataset[DataDict.BEAD_POSITION][0, backmapping_dataset[DataDict.CA_BEAD_IDCS]]
-            residue_shifts = np.repeat(ca_shifts, minimizer_data["per_residue_beads"].cpu().numpy(), axis=0)
-            backmapping_dataset[DataDict.BEAD_POSITION][0] += residue_shifts
+        #     ca_shifts = minimizer_data["pos"][1::3].detach().cpu().numpy() - backmapping_dataset[DataDict.BEAD_POSITION][0, backmapping_dataset[DataDict.CA_BEAD_IDCS]]
+        #     residue_shifts = np.repeat(ca_shifts, minimizer_data["per_residue_beads"].cpu().numpy(), axis=0)
+        #     backmapping_dataset[DataDict.BEAD_POSITION][0] += residue_shifts
         return backmapping_dataset, minimizer_data
     
     def optimize_backbone(
@@ -290,7 +291,7 @@ class HierarchicalBackmapping:
         print(f"Finished. Time: {time.time() - t}")
 
         if DataDict.BEAD2ATOM_RELATIVE_VECTORS in backmapping_dataset:
-            bb_fltr = np.array([x.split('_')[1] in ['BB'] for x in backmapping_dataset[DataDict.BEAD_NAMES]])
+            bb_fltr = np.array([bn in ['BB'] for bn in backmapping_dataset[DataDict.BEAD_NAMES]])
             b2a_rev_vec = backmapping_dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS].copy()
 
             try:
@@ -438,7 +439,7 @@ class HierarchicalBackmapping:
             backmapped_u = build_universe(backmapping_dataset, n_frames, u.dimensions)
         else:
             backmapped_u = previous_u
-            # _, _, _, residue_idcs_filter = compute_backmapped_top_attrs(backmapping_dataset)
+
         
         backmapped_u.trajectory[frame_index]
         backmapped_sel = backmapped_u.select_atoms('all')
@@ -447,8 +448,11 @@ class HierarchicalBackmapping:
 
         backmapped_filename = os.path.join(folder, f"backmapped_{frame_index}.pdb") 
         backmapped_sel.write(backmapped_filename)
-        topology, positions = fixPDB(backmapped_filename)
-        PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"backmapped_fixed_{frame_index}.pdb"), 'w'), keepIds=True)
+        topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
+        pdb_backmapped = os.path.join(folder, f"backmapped_fixed_{frame_index}.pdb")
+        PDBFile.writeFile(topology, positions, open(pdb_backmapped, 'w'), keepIds=True)
+        pdb_backmapped_minimised = os.path.join(folder, f"backmapped_fixed_min_{frame_index}.pdb")
+        # minimise(pdb_backmapped, pdb_backmapped_minimised, restrain_atoms=['CA'])
 
         # Write pdb of backmapped structure's backbone optimisation trajectory
         if DataDict.ATOM_POSITION_MINIMISATION_TRAJ in backmapping_dataset:
@@ -475,6 +479,7 @@ class HierarchicalBackmapping:
             PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"true_fixed_{frame_index}.pdb"), 'w'), keepIds=True)
 
         print(f"Finished. Time: {time.time() - t}")
+
         return CG_u, backmapped_u, bb_minimisation_u
 
 def build_CG(
@@ -488,7 +493,7 @@ def build_CG(
         trajectory =    True, # necessary for adding coordinates
     )
     CG_u.dimensions = box_dimensions
-    CG_u.add_TopologyAttr('name', [bn.split('_')[1] for bn in backmapping_dataset[DataDict.BEAD_NAMES]])
+    CG_u.add_TopologyAttr('name',     backmapping_dataset[DataDict.BEAD_NAMES])
     CG_u.add_TopologyAttr('type',     backmapping_dataset[DataDict.BEAD_TYPES])
     CG_u.add_TopologyAttr('resname',  backmapping_dataset[DataDict.RESNAMES])
     CG_u.add_TopologyAttr('resid',    backmapping_dataset[DataDict.RESNUMBERS])
@@ -859,8 +864,8 @@ def build_minimizer_data(dataset: Dict, device='cpu'):
     angle_eq_val = np.array(angle_eq_val)
     angle_tolerance = np.array(angle_tolerance)
 
-    movable_pos_idcs = np.ones((len(ca_pos) * 3,), dtype=bool)
-    movable_pos_idcs[np.arange(len(ca_pos)) * 3 + 1] = False
+    movable_pos_idcs = np.ones((len(ca_pos) * 4,), dtype=bool)
+    movable_pos_idcs[np.arange(len(ca_pos)) * 4 + 1] = False
 
     data = {
         "bond_idcs": bond_idcs,

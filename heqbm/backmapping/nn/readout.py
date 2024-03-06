@@ -85,7 +85,8 @@ class HierarchicalBackmappingReadoutModule(GraphModuleMixin, torch.nn.Module):
         
         if self.normalize_out_features:
             norm = torch.norm(eq_features, dim=-1, keepdim=True)
-            eq_features = eq_features / (norm * (1 + torch.exp(-10*norm)))
+            # eq_features = eq_features / (norm * (1 + torch.exp(-10*norm)))
+            eq_features = eq_features / (norm + 1.e-10)
             eq_features = torch.nan_to_num(eq_features, nan=0.)
 
             if EQUIVARIANT_ATOM_LENGTH_FEATURES in data:
@@ -98,7 +99,7 @@ class HierarchicalBackmappingReadoutModule(GraphModuleMixin, torch.nn.Module):
         #     with torch.no_grad():
         #         norm = torch.norm(eq_features, dim=-1, keepdim=True)
         #         norm_vector = torch.ones_like(eq_features)
-        #         norm_vector[to_normalize_filter] /= norm[to_normalize_filter] * (1 + 1e-10)
+        #         norm_vector[to_normalize_filter] /= (norm[to_normalize_filter] + 1e-10)
             
         #     eq_features = eq_features * norm_vector * self.atom_type2bond_lengths[data[AtomicDataDict.ATOM_TYPE_KEY].squeeze(-1)]
 

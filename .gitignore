@@ -7,8 +7,10 @@
 **/local
 /tutorial
 /deployed
+/figures
 *.png
 *.PNG
+*.yaml
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

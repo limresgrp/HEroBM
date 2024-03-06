@@ -21,6 +21,8 @@ from heqbm.backmapping.allegro._keys import (
     INVARIANT_ATOM_FEATURES,
     EQUIVARIANT_ATOM_FEATURES,
     EQUIVARIANT_ATOM_INPUT_FEATURES,
+    EQUIVARIANT_EDGE_LENGTH_FEATURES,
+    EQUIVARIANT_ATOM_LENGTH_FEATURES,
 )
 from heqbm.backmapping.allegro.nn import (
     NormalizedBasis,
@@ -29,12 +31,12 @@ from heqbm.backmapping.allegro.nn import (
 )
 
 from heqbm.backmapping.nn import (
-    HierarchicalBackmappingModule,
+    HierarchicalBackmappingV2Module,
     HierarchicalBackmappingReadoutModule,
 )
 
 
-def HierarchicalBackmapping(config, initialize: bool, dataset: Optional[ConcatDataset] = None):
+def HierarchicalBackmappingV2(config, initialize: bool, dataset: Optional[ConcatDataset] = None):
     logging.debug("Building HEqBM model...")
 
     # Handle avg num neighbors auto
@@ -86,7 +88,7 @@ def HierarchicalBackmapping(config, initialize: bool, dataset: Optional[ConcatDa
         "spharm": SphericalHarmonicEdgeAttrs,
         # The core model:
         "core": (
-            HierarchicalBackmappingModule,
+            HierarchicalBackmappingV2Module,
             dict(
                 field=AtomicDataDict.EDGE_ATTRS_KEY,  # initial input is the edge SH
                 edge_invariant_field=AtomicDataDict.EDGE_EMBEDDING_KEY,
@@ -118,6 +120,14 @@ def HierarchicalBackmapping(config, initialize: bool, dataset: Optional[ConcatDa
                 field=EQUIVARIANT_EDGE_FEATURES,
                 out_field=EQUIVARIANT_ATOM_FEATURES,
                 average_pooling=config.get("eq_average_pooling", False),
+            ),
+        ),
+
+        "per_atom_equivariant_length": (
+            EdgewiseEnergySum,
+            dict(
+                field=EQUIVARIANT_EDGE_LENGTH_FEATURES,
+                out_field=EQUIVARIANT_ATOM_LENGTH_FEATURES,
             ),
         ),
 
