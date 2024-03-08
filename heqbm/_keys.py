@@ -62,6 +62,7 @@ PBC: Final[str] = "pbc"
 
 BEAD2ATOM_IDCS: Final[str] = "bead2atom_idcs"
 BEAD2ATOM_IDCS_MASK: Final[str] = "bead2atom_idcs_mask"
+BEAD2ATOM_WEIGHTS: Final[str] = "bead2atom_weights"
 
 ORIGINAL_FRAMES_IDCS: Final[str] = "orig_frames_idcs"
 

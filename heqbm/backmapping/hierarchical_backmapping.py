@@ -604,6 +604,7 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
     edge_index = get_edge_index(positions=bead_pos, r_max=r_max)
     batch = torch.zeros(len(bead_pos), device=device, dtype=torch.long)
     bead2atom_idcs = torch.from_numpy(dataset[DataDict.BEAD2ATOM_IDCS]).long()
+    bead2atom_weights = torch.from_numpy(dataset[DataDict.BEAD2ATOM_WEIGHTS]).float()
     lvl_idcs_mask = torch.from_numpy(dataset[DataDict.LEVEL_IDCS_MASK]).bool()
     lvl_idcs_anchor_mask = torch.from_numpy(dataset[DataDict.LEVEL_IDCS_ANCHOR_MASK]).long()
     data = {
@@ -616,6 +617,8 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
         AtomicDataDict.BATCH_KEY: batch,
         DataDict.BEAD2ATOM_IDCS: bead2atom_idcs,
         f"{DataDict.BEAD2ATOM_IDCS}_slices": torch.tensor([0, len(bead2atom_idcs)]),
+        DataDict.BEAD2ATOM_WEIGHTS: bead2atom_weights,
+        f"{DataDict.BEAD2ATOM_WEIGHTS}_slices": torch.tensor([0, len(bead2atom_weights)]),
         DataDict.LEVEL_IDCS_MASK: lvl_idcs_mask,
         f"{DataDict.LEVEL_IDCS_MASK}_slices": torch.tensor([0, len(lvl_idcs_mask)]),
         DataDict.LEVEL_IDCS_ANCHOR_MASK: lvl_idcs_anchor_mask,

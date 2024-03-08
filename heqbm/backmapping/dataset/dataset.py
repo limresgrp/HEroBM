@@ -61,8 +61,6 @@ class InMemoryDataset(Dataset):
                 DataDict.DIHEDRAL_IDCS,
                 DataDict.BEAD2ATOM_IDCS,
                 DataDict.BEAD2ATOM_IDCS_MASK,
-                DataDict.BEAD_VERSOR_1_ATOM_IDCS,
-                DataDict.BEAD_VERSOR_2_ATOM_IDCS,
                 DataDict.OMEGA_DIH_IDCS,
             ],
         ):

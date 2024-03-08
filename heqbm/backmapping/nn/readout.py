@@ -85,7 +85,6 @@ class HierarchicalBackmappingReadoutModule(GraphModuleMixin, torch.nn.Module):
         
         if self.normalize_out_features:
             norm = torch.norm(eq_features, dim=-1, keepdim=True)
-            # eq_features = eq_features / (norm * (1 + torch.exp(-10*norm)))
             eq_features = eq_features / (norm + 1.e-10)
             eq_features = torch.nan_to_num(eq_features, nan=0.)
 

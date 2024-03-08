@@ -57,7 +57,7 @@ class HierarchicalMapper(Mapper):
             li = bead._all_local_index
             mask = li >= 0
             li_masked = li[mask]
-            li_prev = bead._all_local_index_prev
+            li_prev = bead._all_local_index_anchor
             li_prev_masked = li_prev[mask]
             anchor_idcs = np.array([np.argwhere(li_masked == x)[0].item() if len(np.argwhere(li_masked == x)) == 1 else -1 for x in li_prev_masked])
             

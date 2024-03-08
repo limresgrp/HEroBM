@@ -63,7 +63,7 @@ def get_ds(
             DataDict.BEAD2ATOM_RELATIVE_VECTORS, DataDict.BEAD_RESIDCS,
             DataDict.BB_PHIPSI, DataDict.LEVEL_IDCS_MASK,
             DataDict.LEVEL_IDCS_ANCHOR_MASK, DataDict.BEAD2ATOM_IDCS,
-            DataDict.CA_NEXT_DIRECTION, DataDict.BOND_IDCS,
+            DataDict.BEAD2ATOM_WEIGHTS, DataDict.BOND_IDCS,
             DataDict.ANGLE_IDCS, DataDict.CELL, DataDict.PBC
         ]
     }
