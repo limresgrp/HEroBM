@@ -18,5 +18,5 @@ atoms:
   HE22: SC1
   HE11: SC1  !
   HE12: SC1  !
-  C:    BB   P1B
-  O:    BB   P2BB
+  C:    BB   P2AB
+  O:    BB   P3BA

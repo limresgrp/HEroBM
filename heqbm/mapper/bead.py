@@ -5,14 +5,29 @@ import numpy as np
 from typing import List, Optional
 from MDAnalysis.core.groups import Atom
 from heqbm.utils import DataDict
-from heqbm.utils.atomType import get_type_from_name
+
+
+ELEMENT_MASSES = {
+    'H': 1.0079,
+    'C': 12.0107,
+    'N': 14.0067,
+    'O': 15.9994,
+    'S': 32.065,
+}
 
 
 class BeadMappingAtomSettings:
 
-    def __init__(self, bead_settings, bead_name, atom_idname, num_shared_beads: int) -> None:
+    def __init__(
+        self,
+        bead_settings: List[str],
+        bead_name: str,
+        atom_idname: str,
+        num_shared_beads: int
+    ) -> None:
         self.bead_name: str = bead_name
         self.atom_idname: str = atom_idname
+        self.atom_resname, self.atom_name = atom_idname.split(DataDict.STR_SEPARATOR)
 
         self._num_shared_beads: int = num_shared_beads
 
@@ -33,6 +48,7 @@ class BeadMappingAtomSettings:
         # Relative index of the atom to e used as anchor point when reconstructing this atom.
         self._local_index_prev: int = -1
 
+        self._mass: float = ELEMENT_MASSES.get(self.atom_name[0])
         self._relative_weight: float = 1.
         self._relative_weight_set: bool = False
 
@@ -92,6 +108,10 @@ class BeadMappingAtomSettings:
     @property
     def has_cm(self):
         return self._has_cm
+    
+    @property
+    def mass(self):
+        return self._mass
     
     @property
     def has_to_be_reconstructed(self):
@@ -272,15 +292,17 @@ class Bead:
 
         self._all_atom_idcs = np.arange(atoms_offset, atoms_offset + self.n_all_atoms)
         self._all_atom_weights = np.zeros((self.n_all_atoms, ), dtype=np.float32)
-        self._all_hierarchy_levels = np.zeros((self.n_all_atoms, ), dtype=np.int16)
-        self._all_local_index = np.zeros((self.n_all_atoms, ), dtype=np.int16)
-        self._all_local_index_anchor = np.zeros((self.n_all_atoms, ), dtype=np.int16)
+        self._all_hierarchy_levels = -np.ones((self.n_all_atoms, ), dtype=np.int16)
+        self._all_local_index = -np.ones((self.n_all_atoms, ), dtype=np.int16)
+        self._all_local_index_anchor = -np.ones((self.n_all_atoms, ), dtype=np.int16)
         
         self._reconstructed_atom_idnames: List[str]      = []
         self._reconstructed_conf_ordered_idcs: List[int] = []
 
         self._reconstructed_atom_idcs = np.zeros((self.n_reconstructed_atoms,), dtype=np.int16)
         self._reconstructed_atom_weights = np.zeros((self.n_reconstructed_atoms,), dtype=np.float32)
+
+        self.missing_atoms_idcs = []
     
     @property
     def n_all_atoms(self):
@@ -301,8 +323,26 @@ class Bead:
     @property
     def all_atom_positions(self):
         if self.is_complete and len(self._all_atoms) > 0:
-            return np.stack([atom.position for atom in self._all_atoms], axis=0)
+            atoms_positions = np.empty((self.n_all_atoms, 3), dtype=np.float32)
+            atoms_positions[...] = np.nan
+            try:
+                actual_atoms_mask = np.ones((self.n_all_atoms,), dtype=bool)
+                if len(self.missing_atoms_idcs) > 0:
+                    actual_atoms_mask[self.missing_atoms_idcs] = False
+                atoms_positions[actual_atoms_mask] = np.stack([atom.position for atom in self._all_atoms], axis=0)
+                return atoms_positions
+            except:
+                return atoms_positions
         return None
+    
+    @property
+    def all_atom_weights(self):
+        all_atom_weights = np.zeros_like(self._all_atom_weights)
+        actual_atoms_mask = np.ones((self.n_all_atoms,), dtype=bool)
+        if len(self.missing_atoms_idcs) > 0:
+            actual_atoms_mask[self.missing_atoms_idcs] = False
+        all_atom_weights[actual_atoms_mask] = self._all_atom_weights[actual_atoms_mask]
+        return all_atom_weights
     
     @property
     def _all_atom_residcs(self):
@@ -341,15 +381,14 @@ class Bead:
         assert atom_idname in self._eligible_atom_idnames, f"Trying to update bead {self.type} with atom {atom_idname} that does not belong to it."
 
         conf_ordered_index = None
-        invalid_confs = []
-        for conf_id, coaidnames in enumerate(self._config_ordered_atom_idnames):
+        updated_config_ordered_atom_idnames = []
+        for coaidnames in self._config_ordered_atom_idnames:
             coai_index = np.argwhere(coaidnames == atom_idname)
             if len(coai_index) > 0:
+                updated_config_ordered_atom_idnames.append(coaidnames)
                 if conf_ordered_index is None:
                     conf_ordered_index = coai_index.item()
-            else:
-                invalid_confs.append(conf_id)
-                self._config_ordered_atom_idnames
+        self._config_ordered_atom_idnames = updated_config_ordered_atom_idnames
         if conf_ordered_index is None:
             raise Exception(f"Atom with idname {atom_idname} not found in mapping configuraiton files for bead {self.idname}")
         
@@ -357,7 +396,7 @@ class Bead:
 
         if atom is not None:
             self._all_atoms.append(atom)
-            self._all_atom_idnames.append(atom_idname)
+        self._all_atom_idnames.append(atom_idname)
         
         self._all_hierarchy_levels[conf_ordered_index] = bmas.hierarchy_level
         self._all_local_index[conf_ordered_index] = bmas._local_index
@@ -368,18 +407,17 @@ class Bead:
         weight = 0.
         if bmas.has_cm:
             weight = 1. * bmas.is_cm
-        elif isinstance(atom, Atom):
-            if not bmas.contributes_to_cm:
-                pass
-            elif self.weigth_based_on == "mass":
-                weight = atom.mass
-            elif self.weigth_based_on == "same":
+        elif bmas.contributes_to_cm:
+            if self.weigth_based_on == "same":
                 weight = 1.
+            elif self.weigth_based_on == "mass":
+                weight = bmas.mass
             else:
                 raise Exception(f"{self.weigth_based_on} is not a valid value for 'weigth_based_on'. Use either 'mass' or 'same'")
         weight *= bmas.relative_weight
         self._all_atom_weights[conf_ordered_index] = weight
 
+        idcs_to_update = None
         if atom_index is not None:
             # If atom index is not None, it means that this atom is shared with another bead,
             # and its idname, position and other properties have already been stored.
@@ -387,6 +425,7 @@ class Bead:
             # and we scale atom indices that are greater to avoid having gaps in the indexing.
             shared_atom_index = self._all_atom_idcs[conf_ordered_index]
             self._all_atom_idcs[conf_ordered_index] = atom_index
+            idcs_to_update = np.copy(self._all_atom_idcs[self._all_atom_idcs > shared_atom_index])
             self._all_atom_idcs[self._all_atom_idcs > shared_atom_index] -= 1
         
         if bmas.has_to_be_reconstructed:
@@ -396,7 +435,7 @@ class Bead:
         if self._n_found_atoms == self.n_all_atoms:
             self.complete()
         
-        return invalid_confs, self._all_atom_idcs[conf_ordered_index]
+        return self._all_atom_idcs[conf_ordered_index], idcs_to_update
     
     def complete(self):
         if self.is_complete:
@@ -433,6 +472,15 @@ class Bead:
         self._reconstructed_conf_ordered_idcs = self._reconstructed_conf_ordered_idcs[reconstructed_sorting_filter]
         self._reconstructed_atom_idcs = self._all_atom_idcs[self._reconstructed_conf_ordered_idcs]
         self._reconstructed_atom_weights = self._all_atom_weights[self._reconstructed_conf_ordered_idcs]
+
+        config_ordered_atom_idnames = self._config_ordered_atom_idnames[0]
+        oaoffset = 0
+        for oaindex, oaidname in enumerate(config_ordered_atom_idnames):
+            if (oaindex > len(self._all_atom_idnames)+oaoffset-1) or (oaidname != self._all_atom_idnames[oaindex - oaoffset]):
+                self.missing_atoms_idcs.append(oaindex)
+                oaoffset += 1
+        self.missing_atoms_idcs = np.array(self.missing_atoms_idcs)
+        self._all_atom_idnames = config_ordered_atom_idnames
 
         self._is_complete = True
 

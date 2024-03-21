@@ -19,9 +19,9 @@ from heqbm.backmapping.nn.quaternions import get_quaternions, qv_mult
 from heqbm.utils import DataDict
 from heqbm.utils.geometry import get_RMSD, get_angles, get_dihedrals
 from heqbm.utils.backbone import cat_interleave, MinimizeEnergy
-from heqbm.utils.minimisation import minimise
 from heqbm.utils.plotting import plot_cg
-from heqbm.utils.pdbFixer import fixPDB, joinPDBs
+from heqbm.utils.pdbFixer import fixPDB
+from heqbm.utils.minimisation import minimise_impl
 
 from openmm.app import PDBFile
 
@@ -40,89 +40,91 @@ from nequip.scripts.deploy import load_deployed_model, R_MAX_KEY
 
 class HierarchicalBackmapping:
 
-    config_filename: str
     config: Dict[str, str]
     mapping: HierarchicalMapper
 
-    structure_foldername: Optional[str]
-    structure_format: str
-    structure_filenames: List[str]
+    input_folder: Optional[str]
+    input_filenames: List[str]
     model_config: Dict[str, str]
     model_r_max: float
 
     minimizer: MinimizeEnergy
 
-    def __init__(
-        self,
-        config_filename: str,
-    ) -> None:
+    def __init__(self, args_dict) -> None:
         
         ### --------------------- ###
+        self.config: Dict[str, str] = dict()
 
-        self.config_filename = config_filename
-        self.config: Dict[str, str] = yaml.safe_load(Path(self.config_filename).read_text())
+        config = args_dict.pop("config", None)
+        if config is not None:
+            self.config.update(yaml.safe_load(Path(config).read_text()))
 
-        self.model_device = self.config.get("model_device", "cuda" if torch.cuda.is_available() else "cpu")
+        args_dict = {key: value for key, value in args_dict.items() if value is not None}
+        self.config.update(args_dict)
+
+        def parse_slice(slice_str):
+            parts = slice_str.split(':')
+
+            start = None if parts[0] == '' else int(parts[0])
+            stop = None if parts[1] == '' else int(parts[1])
+            step = None if len(parts) == 2 or parts[2] == '' else int(parts[2])
+
+            return slice(start, stop, step)
+
+        if self.config.get("trajslice", None) is not None:
+            self.config["trajslice"] = parse_slice(self.config["trajslice"])
+
 
         ### Parse Input ###
         
         self.mapping = HierarchicalMapper(config=self.config)
 
-        self.root_output_folder = self.config.get("output_folder")
-        self.structure_foldername = self.config.get("structure_foldername", None)
-        self.structure_format = self.config.get("structure_format", "pdb")
-        if self.structure_foldername is not None:
-            self.structure_filenames = list(glob.glob(os.path.join(self.structure_foldername, f"*.{self.structure_format}")))
+        self.output_folder = self.config.get("output")
+        input = self.config.get("input")
+        if os.path.isdir(input):
+            self.input_folder = input
+            input_format = self.config.get("inputformat", "*")
+            self.input_filenames = list(glob.glob(os.path.join(self.input_folder, f"*.{input_format}")))
         else:
-            structure_filename = self.config.get("structure_filename", None)
-            self.structure_filename = structure_filename
-            assert structure_filename is not None
-            self.structure_filenames = [structure_filename]
+            self.input_folder = None
+            self.input_filename = input
+            self.input_filenames = [self.input_filename]
 
         ### Load Model ###
-
-        # first, try to load a deployed model, if it is specified in the config file
-
+            
         print("Loading model...")
 
-        loaded_deployed_model = False
-        deployed_model = self.config.get("model", None)
-        if deployed_model is not None:
+        model = self.config.get("model", None)
+        if model is None:
+            raise Exception("You did not provide the 'model' input parameter.")
+        if Path(model).suffix not in [".yaml", ".json"]:
             try:
                 deployed_model = os.path.join(os.path.dirname(__file__), '..', '..', deployed_model)
                 self.model, metadata = load_deployed_model(
                     deployed_model,
-                    device=self.model_device,
+                    device=self.config.get("device"),
                     set_global_options=True,  # don't warn that setting
                 )
                 # the global settings for a deployed model are set by
-                # set_global_options in the call to load_deployed_model
-                # above
+                # set_global_options in the call to load_deployed_model above
                 self.model_r_max = float(metadata[R_MAX_KEY])
-                loaded_deployed_model = True
                 print("Loaded deployed model")
-            except ValueError:  # its not a deployed model
-                loaded_deployed_model = False
-
-        if not loaded_deployed_model:
-            model_training_config_file = self.config.get("model_training_config_file", None)
-            if model_training_config_file is not None:
-                model_config_file = os.path.join(os.path.dirname(__file__), '..', '..', model_training_config_file)
-                model_config: Optional[Dict[str, str]] = yaml.load(
-                    Path(model_config_file).read_text(), Loader=yaml.Loader
-                ) if model_config_file is not None else None
-                self.model, training_model_config = load_model(
-                    model_dir=self.config.get("model_dir", None),
-                    model_config=model_config,
-                    config=self.config,
-                )
-                self.model_r_max = float(training_model_config[R_MAX_KEY])
-                print("Loaded model from training session")
-            else:
+            except Exception as e:
                 raise Exception(
-                    """You did not provide the 'model_training_config_file' path and the deployed model was
-                    not loaded (you either did not provide the 'model' path or the deployed model failed to be loaded)."""
-                )
+                    f"""Could not load {model}."""
+                ) from e
+        else:
+            model_config_file = os.path.join(os.path.dirname(__file__), '..', '..', model)
+            model_config: Optional[Dict[str, str]] = yaml.load(
+                Path(model_config_file).read_text(), Loader=yaml.Loader
+            ) if model_config_file is not None else None
+            self.model, training_model_config = load_model(
+                model_dir=None,
+                model_config=model_config,
+                config=self.config,
+            )
+            self.model_r_max = float(training_model_config[R_MAX_KEY])
+            print("Loaded model from training session.")
         
         self.model.eval()
 
@@ -130,11 +132,11 @@ class HierarchicalBackmapping:
 
         self.minimizer = MinimizeEnergy()
 
-        ### --------------------- ###
+        ### ------------------------------------------------------- ###
     
     @property
     def num_structures(self):
-        return len(self.structure_filenames)
+        return len(self.input_filenames)
     
     def plot(self, frame_index=0):
         plot_cg(
@@ -171,10 +173,10 @@ class HierarchicalBackmapping:
             self,
             backmapping_dataset: Dict,
             minimizer_data: Dict,
-            device: str = 'cpu',
-            verbose: bool = False,
             lock_ca: bool=False,
             minimise_dih: bool = False,
+            device: str = 'cpu',
+            verbose: bool = False,
     ):
 
         # Add predicted dihedrals as dihedral equilibrium values
@@ -212,13 +214,13 @@ class HierarchicalBackmapping:
             )
 
         pos = minimizer_data["pos"].detach().cpu().numpy()
-        real_bb_atom_idcs = minimizer_data["real_bb_atom_idcs"].detach().cpu().numpy()
+        # real_bb_atom_idcs = minimizer_data["real_bb_atom_idcs"].detach().cpu().numpy()
         backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED] = pos # pos[real_bb_atom_idcs]
-        if DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ in minimizer_data:
-            backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ] = np.stack(
-                minimizer_data[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ],
-                axis=0
-            )[:, real_bb_atom_idcs]
+        # if DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ in minimizer_data:
+        #     backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ] = np.stack(
+        #         minimizer_data[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ],
+        #         axis=0
+        #     )[:, real_bb_atom_idcs]
         return backmapping_dataset, minimizer_data
         
     def map(
@@ -226,29 +228,28 @@ class HierarchicalBackmapping:
         index: int,
         skip_if_existent: bool = True,
     ):
-        if self.structure_foldername is None:
-            self.mapping.map(self.config, selection=self.config.get("selection", "all"))
+        if self.input_folder is None:
+            self.mapping.map(self.config)
         else:
-            self.structure_filename = self.structure_filenames[index]
-            self.config["structure_filename"] = self.structure_filename
-            self.config["traj_filenames"] = []
-            self.config["output_folder"] = os.path.join(self.root_output_folder, '.'.join(basename(self.structure_filename).split('.')[:-1]))
-            if skip_if_existent and os.path.isdir(self.config["output_folder"]):
-                return False
-            print(f"Mapping structure {self.structure_filename}")
-            self.mapping.map(self.config, selection=self.config.get("selection", "all"))
-        return True
+            self.input_filename = self.input_filenames[index]
+            self.config["input"] = self.input_filename
+            self.config["inputtraj"] = []
+            self.config["output"] = os.path.join(self.output_folder, '.'.join(basename(self.input_filename).split('.')[:-1]))
+            if skip_if_existent and os.path.isdir(self.config["output"]):
+                return True
+            print(f"Mapping structure {self.input_filename}")
+            self.mapping.map(self.config)
+        return False
     
     def backmap(
         self,
         frame_index: int,
-        device: str = 'cpu',
         verbose: bool = False,
-        optimize_backbone: Optional[bool] = None,
         lock_ca: bool = False,
         minimise_dih: bool = False,
+        optimize_backbone: Optional[bool] = None,
     ):
-        print(f"Backmapping structure {self.structure_filename}")
+        print(f"Backmapping structure {self.input_filename}")
         backmapping_dataset = self.mapping.dataset
         for k in [
             DataDict.ATOM_POSITION,
@@ -264,12 +265,13 @@ class HierarchicalBackmapping:
                 backmapping_dataset[k] = backmapping_dataset[k][frame_index:frame_index+1]
         
         if optimize_backbone is None:
-            optimize_backbone = self.config.get("optimize_backbone", True)
+            optimize_backbone = self.config.get("optimizebackbone", True)
         if DataDict.CA_BEAD_IDCS not in backmapping_dataset or (backmapping_dataset[DataDict.CA_BEAD_IDCS].sum() == 0):
             optimize_backbone = False
         
+        device = self.config.get("device", "cpu")
+        
         # Adjust CG CA bead positions, if they don't pass structure quality checks
-        device = self.model_device
         backmapping_dataset, minimizer_data = self.adjust_beads(
             backmapping_dataset=backmapping_dataset,
             device=device,
@@ -334,17 +336,17 @@ class HierarchicalBackmapping:
             o_atom_idcs = minimizer_data["o_atom_idcs"].cpu().numpy()
             
             backmapping_dataset[DataDict.ATOM_POSITION_PRED][0, n_atom_idcs + ca_atom_idcs + c_atom_idcs + o_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_PRED]
-            if minimise_dih:
-                backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset)
+            # if minimise_dih:
+            #     backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset)
 
-                if DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ in backmapping_dataset:
-                    backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ] = np.repeat(
-                        backmapping_dataset[DataDict.ATOM_POSITION_PRED],
-                        len(backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]),
-                        axis=0
-                    )
-                    backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ][:, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]
-                    backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset, position_key=DataDict.ATOM_POSITION_MINIMISATION_TRAJ)
+                # if DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ in backmapping_dataset:
+                #     backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ] = np.repeat(
+                #         backmapping_dataset[DataDict.ATOM_POSITION_PRED],
+                #         len(backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]),
+                #         axis=0
+                #     )
+                #     backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ][:, n_atom_idcs + ca_atom_idcs + c_atom_idcs] = backmapping_dataset[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ]
+                #     backmapping_dataset = adjust_bb_oxygens(dataset=backmapping_dataset, position_key=DataDict.ATOM_POSITION_MINIMISATION_TRAJ)
 
         if DataDict.ATOM_POSITION in backmapping_dataset:
             try:
@@ -386,8 +388,8 @@ class HierarchicalBackmapping:
         baseline_energy = self.minimizer.evaluate_dihedral_energy(minimizer_data, pos=pred_pos)
         for x in range(len(ca_pos)-1):
             temp_updated_pos = updated_pos.clone()
-            C_id = x*3+2
-            N_id = x*3+3
+            C_id = x*4+2
+            N_id = x*4+4
             energies = []
             for rotated_pos in all_rotated_pos:
                 temp_updated_pos[C_id] = rotated_pos[C_id]
@@ -408,31 +410,23 @@ class HierarchicalBackmapping:
             backmapping_dataset: Dict,
             n_frames: int,
             frame_index: int,
-            selection: str,
-            folder: str,
             previous_u: Optional[mda.Universe] = None,
+            save_CG: bool = False,
         ):
         
         print(f"Saving structures...")
         t = time.time()
         
-        u = mda.Universe(self.config.get("structure_filename"), *self.config.get("traj_filenames", []))
-        u.trajectory[frame_index]
+        u = mda.Universe(self.config.get("input"))
 
-        os.makedirs(folder, exist_ok=True)
+        os.makedirs(self.output_folder, exist_ok=True)
 
-        # Write pdb file(s) of CG structure(s)
-        CG_u = build_CG(backmapping_dataset, u.dimensions)
-        CG_sel = CG_u.select_atoms('all')
-        CG_sel.positions = backmapping_dataset.get(DataDict.BEAD_POSITION_ORIGINAL, backmapping_dataset[DataDict.BEAD_POSITION])[0]
-        CG_sel.write(os.path.join(folder, f"original_CG_{frame_index}.pdb"))
-
-        # Write CA optimised CG
-        if (DataDict.BEAD_POSITION_ORIGINAL in backmapping_dataset):
-            optimized_bead_position = backmapping_dataset[DataDict.BEAD_POSITION][0]
-            if np.any(~np.isclose(CG_sel.positions, optimized_bead_position)):
-                CG_sel.positions = optimized_bead_position
-                CG_sel.write(os.path.join(folder, f"final_CG_{frame_index}.pdb"))
+        # Write pdb file of CG structure
+        if save_CG:
+            CG_u = build_CG(backmapping_dataset, u.dimensions)
+            CG_sel = CG_u.select_atoms('all')
+            CG_sel.positions = backmapping_dataset.get(DataDict.BEAD_POSITION_ORIGINAL, backmapping_dataset[DataDict.BEAD_POSITION])[0]
+            CG_sel.write(os.path.join(self.output_folder, f"CG_{frame_index}.pdb"))
         
         # Write pdb of backmapped structure
         if previous_u is None:
@@ -440,47 +434,35 @@ class HierarchicalBackmapping:
         else:
             backmapped_u = previous_u
 
-        
         backmapped_u.trajectory[frame_index]
         backmapped_sel = backmapped_u.select_atoms('all')
         positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0]
         backmapped_sel.positions = positions_pred[~np.any(np.isnan(positions_pred), axis=-1)]
-
-        backmapped_filename = os.path.join(folder, f"backmapped_{frame_index}.pdb") 
+        backmapped_filename = os.path.join(self.output_folder, f"backmapped_{frame_index}.pdb") 
         backmapped_sel.write(backmapped_filename)
+        
+        # Write pdb of minimised structure
         topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
-        pdb_backmapped = os.path.join(folder, f"backmapped_fixed_{frame_index}.pdb")
-        PDBFile.writeFile(topology, positions, open(pdb_backmapped, 'w'), keepIds=True)
-        pdb_backmapped_minimised = os.path.join(folder, f"backmapped_fixed_min_{frame_index}.pdb")
-        # minimise(pdb_backmapped, pdb_backmapped_minimised, restrain_atoms=['CA'])
-
-        # Write pdb of backmapped structure's backbone optimisation trajectory
-        if DataDict.ATOM_POSITION_MINIMISATION_TRAJ in backmapping_dataset:
-            positions_bb_minimisation = backmapping_dataset[DataDict.ATOM_POSITION_MINIMISATION_TRAJ]
-            positions_bb_minimisation = np.nan_to_num(positions_bb_minimisation, nan=0.)
-            bb_minimisation_u = build_universe(backmapping_dataset, len(positions_bb_minimisation), u.dimensions)
-
-            bb_minimisation_sel = bb_minimisation_u.select_atoms('all')
-            bb_minimisation_filename = os.path.join(folder, f"bb_minimisation_{frame_index}.pdb") 
-
-            with mda.Writer(bb_minimisation_filename, multiframe=True) as W:
-                for ts, pos_bb_min in zip(bb_minimisation_u.trajectory, positions_bb_minimisation):
-                    bb_minimisation_sel.positions = pos_bb_min
-                    W.write(bb_minimisation_sel)
-        else:
-            bb_minimisation_u = None
+        backmapped_minimised_filename = os.path.join(self.output_folder, f"backmapped_min_{frame_index}.pdb")
+        minimise_impl(
+            topology,
+            positions,
+            backmapped_minimised_filename,
+            restrain_atoms=['CA'],
+            tolerance=200.,
+        )
         
         # Write pdb of true atomistic structure (if present)
-        if not self.config.get("simulation_is_cg", True):
-            sel = u.select_atoms(selection)
-            true_filename = os.path.join(folder, f"true_{frame_index}.pdb")
-            sel.write(true_filename)
-            topology, positions = fixPDB(true_filename)
-            PDBFile.writeFile(topology, positions, open(os.path.join(folder, f"true_fixed_{frame_index}.pdb"), 'w'), keepIds=True)
+        if self.config.get("atomistic", False):
+            true_sel = backmapped_u.select_atoms('all')
+            true_positions = backmapping_dataset[DataDict.ATOM_POSITION][0]
+            true_sel.positions = true_positions[~np.any(np.isnan(positions_pred), axis=-1)]
+            true_filename = os.path.join(self.output_folder, f"true_{frame_index}.pdb") 
+            true_sel.write(true_filename)
 
         print(f"Finished. Time: {time.time() - t}")
 
-        return CG_u, backmapped_u, bb_minimisation_u
+        return backmapped_u
 
 def build_CG(
     backmapping_dataset: dict,
@@ -500,21 +482,6 @@ def build_CG(
     CG_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.BEAD_CHAINIDCS])
 
     return CG_u
-
-# def build_backmapped(
-#     backmapping_dataset: dict,
-#     n_frames: int,
-#     box_dimensions,
-# ):
-#     # residue_idcs_filter = compute_backmapped_top_attrs(backmapping_dataset)
-
-#     backmapped_u = build_universe(
-#         backmapping_dataset,
-#         n_frames,
-#         box_dimensions,
-#     )
-
-#     return backmapped_u
 
 def build_universe(
     backmapping_dataset,
@@ -545,30 +512,11 @@ def build_universe(
 
     return backmapped_u
 
-# def compute_backmapped_top_attrs(backmapping_dataset: dict):
-#     residue_idcs_filter = []
-#     for resindex, resname in zip(np.unique(atom_resindex), backmapping_dataset[DataDict.RESNAMES]):
-#         residue_id_filter = np.argwhere(atom_resindex == resindex).flatten()
-#         residue_atomnames = backmapping_dataset[DataDict.ATOM_NAMES][residue_id_filter]
-#         if 'C' in residue_atomnames \
-#         and 'O' in residue_atomnames \
-#         and resname in DataDict.PROTEIN_RESNAMES:
-#             C_id = np.argwhere(residue_atomnames == 'C').item()
-#             O_id = np.argwhere(residue_atomnames == 'O').item()
-#             C_index = residue_id_filter[C_id]
-#             O_index = residue_id_filter[O_id]
-#             residue_id_filter[C_id:-2] = residue_id_filter[O_id+1:]
-#             residue_id_filter[-2] = C_index
-#             residue_id_filter[-1] = O_index
-#         residue_idcs_filter.append(residue_id_filter)
-#     residue_idcs_filter = np.concatenate(residue_idcs_filter)
-#     return residue_idcs_filter
-
 def load_model(config: Dict, model_dir: Optional[Path] = None, model_config: Optional[Dict] = None):
     if model_dir is None:
         assert model_config is not None, "You should provide either 'model_config_file' or 'model_dir' in the configuration file"
         model_dir = os.path.join(model_config.get("root"), model_config.get("fine_tuning_run_name", model_config.get("run_name")))
-    model_name = config.get("model_relative_weights", "best_model.pth")
+    model_name = config.get("modelweights", "best_model.pth")
     
     global_config = os.path.join(model_dir, "config.yaml")
     global_config = Config.from_file(str(global_config), defaults={})
@@ -580,7 +528,7 @@ def load_model(config: Dict, model_dir: Optional[Path] = None, model_config: Opt
         model_name=model_name,
     )
 
-    model = model.to(config.get("model_device", "cuda" if torch.cuda.is_available() else "cpu"))
+    model = model.to(config.get("device", "cpu"))
     return model, training_model_config
     
 def get_edge_index(positions: torch.Tensor, r_max: float):
@@ -943,14 +891,14 @@ def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads
     residue_contains_c = np.array(residue_contains_c)
     residue_contains_o = np.array(residue_contains_o)
     
-    real_bb_atom_idcs = cat_interleave(
-        [
-            residue_contains_n,
-            np.ones_like(residue_contains_n, dtype=bool),
-            residue_contains_c,
-            residue_contains_o,
-        ],
-    )
+    # real_bb_atom_idcs = cat_interleave(
+    #     [
+    #         residue_contains_n,
+    #         np.ones_like(residue_contains_n, dtype=bool),
+    #         residue_contains_c,
+    #         residue_contains_o,
+    #     ],
+    # )
 
     data = {
         "pos": atom_pos_pred,
@@ -958,7 +906,7 @@ def update_minimizer_data(minimizer_data: Dict, dataset: Dict, use_only_bb_beads
         "n_atom_idcs": n_atom_idcs,
         "c_atom_idcs": c_atom_idcs,
         "o_atom_idcs": o_atom_idcs,
-        "real_bb_atom_idcs": real_bb_atom_idcs,
+        # "real_bb_atom_idcs": real_bb_atom_idcs,
     }
 
     if DataDict.BB_PHIPSI_PRED in dataset and dataset[DataDict.BB_PHIPSI_PRED].shape[-1] == 2:
@@ -1010,16 +958,16 @@ def rotate_residue_dihedrals(pos: torch.TensorType, ca_pos: torch.TensorType, an
         angles=angles_polar
     )
 
-    C_N_fltr = torch.zeros((len(pos),), dtype=bool, device=rot_axes.device)
+    C_N_O_fltr = torch.zeros((len(pos),), dtype=bool, device=rot_axes.device)
     for x in range(len(ca_pos)-1):
-        C_N_fltr[x*3+2] = True
-        C_N_fltr[x*3+3] = True
+        C_N_O_fltr[x*4+2] = True
+        C_N_O_fltr[x*4+4] = True
 
-    v_ = pos[C_N_fltr] - ca_pos[:-1].repeat_interleave(2 * torch.ones((len(ca_pos[:-1]),), dtype=int, device=ca_pos.device), dim=0)
+    v_ = pos[C_N_O_fltr] - ca_pos[:-1].repeat_interleave(2 * torch.ones((len(ca_pos[:-1]),), dtype=int, device=ca_pos.device), dim=0)
     v_rotated = qv_mult(q_polar, v_)
 
     rotated_pred_pos = pos.clone()
-    rotated_pred_pos[C_N_fltr] = ca_pos[:-1].repeat_interleave(2 * torch.ones((len(ca_pos[:-1]),), dtype=int, device=ca_pos.device), dim=0) + v_rotated
+    rotated_pred_pos[C_N_O_fltr] = ca_pos[:-1].repeat_interleave(2 * torch.ones((len(ca_pos[:-1]),), dtype=int, device=ca_pos.device), dim=0) + v_rotated
     return rotated_pred_pos
 
 def run_b2a_rel_vec_backmapping(dataset: Dict, use_predicted_b2a_rel_vec: bool = False):
@@ -1146,36 +1094,36 @@ def adjust_oxygens(
 
     return adjusted_pos
 
-def backmap(config_filename: str, frame_selection: Optional[slice] = None, verbose: bool = False):
-    print(f"Reading input data...")
-    t = time.time()
-    backmapping = HierarchicalBackmapping(config_filename=config_filename)
-    print(f"Finished. Time: {time.time() - t}")
+# def backmap(config_filename: str, frame_selection: Optional[slice] = None, verbose: bool = False):
+#     print(f"Reading input data...")
+#     t = time.time()
+#     backmapping = HierarchicalBackmapping(config_filename=config_filename)
+#     print(f"Finished. Time: {time.time() - t}")
 
-    frame_idcs = range(0, len(backmapping.mapping.dataset[DataDict.BEAD_POSITION]))
-    if frame_selection is not None:
-        frame_idcs = frame_idcs[frame_selection]
-    n_frames = len(frame_idcs)
+#     frame_idcs = range(0, len(backmapping.mapping.dataset[DataDict.BEAD_POSITION]))
+#     if frame_selection is not None:
+#         frame_idcs = frame_idcs[frame_selection]
+#     n_frames = len(frame_idcs)
 
-    CG_u, backmapped_u = None, None
-    bb_minimisation_u_list = []
-    for i, frame_index in enumerate(frame_idcs):
-        print(f"Starting backmapping for frame index {frame_index} ({i+1}/{n_frames})")
-        backmapping_dataset = backmapping.backmap(
-            frame_index=frame_index,
-            verbose=verbose,
-        )
-        CG_u, backmapped_u, bb_minimisation_u = backmapping.to_pdb(
-            backmapping_dataset=backmapping_dataset,
-            n_frames=n_frames,
-            frame_index=frame_index,
-            selection=backmapping.config.get("selection", "protein"),
-            folder=backmapping.config.get("output_folder"),
-            previous_u=backmapped_u,
-        )
-        bb_minimisation_u_list.append(bb_minimisation_u)
+#     CG_u, backmapped_u = None, None
+#     bb_minimisation_u_list = []
+#     for i, frame_index in enumerate(frame_idcs):
+#         print(f"Starting backmapping for frame index {frame_index} ({i+1}/{n_frames})")
+#         backmapping_dataset = backmapping.backmap(
+#             frame_index=frame_index,
+#             verbose=verbose,
+#         )
+#         CG_u, backmapped_u, bb_minimisation_u = backmapping.to_pdb(
+#             backmapping_dataset=backmapping_dataset,
+#             n_frames=n_frames,
+#             frame_index=frame_index,
+#             selection=backmapping.config.get("selection", "protein"),
+#             folder=backmapping.config.get("output_folder"),
+#             previous_u=backmapped_u,
+#         )
+#         bb_minimisation_u_list.append(bb_minimisation_u)
 
-    for tag in ['original_CG', 'final_CG', 'backmapped', 'true']:
-        joinPDBs(backmapping.config.get("output_folder"), tag)
+#     for tag in ['original_CG', 'final_CG', 'backmapped', 'true']:
+#         joinPDBs(backmapping.config.get("output_folder"), tag)
     
-    return CG_u, backmapped_u, bb_minimisation_u_list
+#     return CG_u, backmapped_u, bb_minimisation_u_list

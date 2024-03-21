@@ -184,7 +184,10 @@ class HierarchicalBackmappingModule(GraphModuleMixin, torch.nn.Module):
                 # ^ means we're doing the last layer
                 # No more TPs follow this, so only need self.eq_out_irreps
                 # ir_out = self.eq_out_irreps <- OLD
-                ir_out = o3.Irreps([ir for ir in env_embed_irreps if ir.ir.l <= self.eq_out_irreps.lmax])
+                if len(self.eq_out_irreps.ls) > 0:
+                    ir_out = o3.Irreps([ir for ir in env_embed_irreps if ir.ir.l <= self.eq_out_irreps.lmax])
+                else:
+                    ir_out = o3.Irreps("0x1o")
 
             # Prune impossible paths
             ir_out = o3.Irreps(
@@ -220,7 +223,8 @@ class HierarchicalBackmappingModule(GraphModuleMixin, torch.nn.Module):
         tps_irreps = list(reversed(new_tps_irreps))
         del new_tps_irreps
 
-        assert tps_irreps[-1].lmax == self.eq_out_irreps.lmax
+        if len(self.eq_out_irreps.ls) > 0:
+            assert tps_irreps[-1].lmax == self.eq_out_irreps.lmax
 
         tps_irreps_in = tps_irreps[:-1]
         tps_irreps_out = tps_irreps[1:]
@@ -382,7 +386,7 @@ class HierarchicalBackmappingModule(GraphModuleMixin, torch.nn.Module):
         
         # ------------------- #
 
-        if self.readout_features:
+        if self.readout_features and len(self.eq_out_irreps.ls)>0:
             self.final_readout = latent(
                 mlp_input_dimension=self.latents[-1].out_features
                 + env_embed_multiplicity * self._n_scalar_outs[layer_idx],
@@ -707,7 +711,7 @@ class HierarchicalBackmappingModule(GraphModuleMixin, torch.nn.Module):
 
         # ------------------------- #
         
-        if self.readout_features:
+        if self.readout_features and len(self.eq_out_irreps.ls) > 0:
             data[self.inv_out_field] = self.final_readout(final_latent_input)
 
             weights = self.final_latent(final_latent_input)

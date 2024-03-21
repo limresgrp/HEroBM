@@ -21,13 +21,13 @@ class EdgewiseEnergySum(GraphModuleMixin, torch.nn.Module):
 
     def __init__(
         self,
-        # num_types: int,
+        num_types: int,
         field: str = _keys.EDGE_FEATURES,
         out_field: str = AtomicDataDict.PER_ATOM_ENERGY_KEY,
         avg_num_neighbors: Optional[float] = None,
         normalize_edge_energy_sum: bool = True,
         average_pooling: bool = False,
-        # per_edge_species_scale: Optional[float] = None,
+        per_edge_species_scale: Optional[float] = None,
         irreps_in={},
     ):
         """Sum edges into nodes."""
@@ -47,25 +47,25 @@ class EdgewiseEnergySum(GraphModuleMixin, torch.nn.Module):
         
         self.average_pooling: bool = average_pooling
 
-        # self.per_edge_species_scale = per_edge_species_scale
-        # if self.per_edge_species_scale is not None:
-        #     self.per_edge_scales = torch.nn.Parameter(self.per_edge_species_scale * torch.ones(num_types, num_types))
-        # else:
-        #     self.register_buffer("per_edge_scales", torch.Tensor())
+        self.per_edge_species_scale = per_edge_species_scale
+        if self.per_edge_species_scale is not None:
+            self.per_edge_scales = torch.nn.Parameter(self.per_edge_species_scale * torch.ones(num_types, num_types))
+        else:
+            self.register_buffer("per_edge_scales", torch.Tensor())
 
     def forward(self, data: AtomicDataDict.Type) -> AtomicDataDict.Type:
         edge_center = data[AtomicDataDict.EDGE_INDEX_KEY][0]
-        # edge_neighbor = data[AtomicDataDict.EDGE_INDEX_KEY][1]
+        edge_neighbor = data[AtomicDataDict.EDGE_INDEX_KEY][1]
 
         edge_eng = data[self.field]
         species = data[AtomicDataDict.ATOM_TYPE_KEY].squeeze(-1)
-        # center_species = species[edge_center]
-        # neighbor_species = species[edge_neighbor]
+        center_species = species[edge_center]
+        neighbor_species = species[edge_neighbor]
 
-        # if self.per_edge_species_scale:
-        #     edge_eng = edge_eng * self.per_edge_scales[
-        #         center_species, neighbor_species
-        #     ].reshape(-1, *[1 for _ in range(len(edge_eng.shape)-1)])
+        if self.per_edge_species_scale:
+            edge_eng = edge_eng * self.per_edge_scales[
+                center_species, neighbor_species
+            ].reshape(-1, *[1 for _ in range(len(edge_eng.shape)-1)])
 
         atom_eng = scatter(edge_eng, edge_center, dim=0, dim_size=len(species))
         if self.average_pooling:

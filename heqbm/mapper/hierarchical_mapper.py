@@ -62,7 +62,7 @@ class HierarchicalMapper(Mapper):
             anchor_idcs = np.array([np.argwhere(li_masked == x)[0].item() if len(np.argwhere(li_masked == x)) == 1 else -1 for x in li_prev_masked])
             
             for level in range(0, self.bead_reconstructed_size + 1):
-                bead_local_filter = np.argwhere(np.array(bead._all_hierarchy_levels[mask]) == level)
+                bead_local_filter = np.argwhere(bead._all_hierarchy_levels[mask] == level)
                 if len(bead_local_filter) > 0:
                     bead_local_filter = bead_local_filter.flatten()
                     self._level_idcs_mask[level, i, bead_local_filter] = True

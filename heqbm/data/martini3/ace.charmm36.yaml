@@ -5,5 +5,5 @@ atoms:
   CH3: RE  P1A
   H2:  RE  !
   H3:  RE  !
-  C:   RE  P1B
-  O:   RE  P2BA
+  C:   RE  P2A
+  O:   RE  P3AA

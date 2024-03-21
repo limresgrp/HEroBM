@@ -10,14 +10,29 @@ from openmm.unit import kelvin, nanometer, picoseconds
 def minimise(
     pdb_in_filename: str,
     pdb_out_filename: str,
-    tolerance: float = 500, # Value in Kj/(mol nm)
+    tolerance: float = 100, # Value in Kj/(mol nm)
     restrain_atoms: List[str] = [],
 ):
         print('Reading pdb file...')
         pdb = PDBFile(pdb_in_filename)
-        forcefield = ForceField('amber14-all.xml')
-        modeller = Modeller(pdb.topology, pdb.positions)
+        minimise_impl(
+                pdb.topology,
+                pdb.positions,
+                pdb_out_filename,
+                tolerance,
+                restrain_atoms,
+        )
 
+def minimise_impl(
+    topology,
+    positions,
+    pdb_out_filename: str,
+    tolerance: float = 50, # Value in Kj/(mol nm)
+    restrain_atoms: List[str] = [],
+):
+        modeller = Modeller(topology, positions)
+
+        forcefield = ForceField('amber14-all.xml')
         system = forcefield.createSystem(
                 modeller.topology,
                 nonbondedMethod=NoCutoff,
@@ -39,10 +54,6 @@ def minimise(
                 if atom.name in restrain_atoms:
                         restraint.addParticle(atom.index, modeller.positions[atom.index])
 
-        # for atom in modeller.topology.atoms():
-        #         if atom.name in restrain_atoms:
-        #                 system.setParticleMass(atom.index, 1e10)
-
         ######################
 
         integrator = LangevinMiddleIntegrator(300*kelvin, 1/picoseconds, 0.001*picoseconds)
@@ -58,7 +69,7 @@ def minimise(
         state = simulation.context.getState(getPositions=True, getEnergy=True, getForces=True)
         f = np.array([[a.x,a.y,a.z] for a in state.getForces()])
         if np.linalg.norm(f, axis=1).mean() > 10 * tolerance:
-                print(f"Failed minimisation for {pdb_in_filename}. Force: {np.linalg.norm(f, axis=1).mean()}.")
+                print(f"Failed minimisation. Force: {np.linalg.norm(f, axis=1).mean()}.")
                 print("Check box dimension, as it could be too small and cause energy minimisation to fail.")
                 return
         

@@ -10,5 +10,5 @@ atoms:
   HB3:  SC1  !
   SG:   SC1  P1B
   HG:   SC1  !
-  C:    BB   P1B
-  O:    BB   P2BB
+  C:    BB   P2AB
+  O:    BB   P3BA

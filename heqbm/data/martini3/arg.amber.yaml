@@ -23,5 +23,5 @@ atoms:
   NH2:  SC2  P2AC
   HH21: SC2
   HH22: SC2
-  C:    BB   P1B
-  O:    BB   P2BB
+  C:    BB   P2AB
+  O:    BB   P3BA

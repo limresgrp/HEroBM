@@ -12,5 +12,5 @@ atoms:
   OD1: SC1  P2AB
   OD2: SC1  P2AC
   HD2: SC1  !
-  C:   BB   P1B
-  O:   BB   P2BB
+  C:   BB   P2AB
+  O:   BB   P3BA

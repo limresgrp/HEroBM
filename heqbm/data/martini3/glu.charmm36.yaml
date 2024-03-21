@@ -15,5 +15,5 @@ atoms:
   OE1: SC1  P2AB
   OE2: SC1  P2AC
   HE2: SC1  !
-  C:   BB   P1B
-  O:   BB   P2BB
+  C:   BB   P2AB
+  O:   BB   P3BA

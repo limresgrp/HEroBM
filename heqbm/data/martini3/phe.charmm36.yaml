@@ -19,5 +19,5 @@ atoms:
   HD2:  SC1,SC3  1/3,2/3
   CE2:  SC3  P1A
   HE2:  SC3
-  C:    BB   P1B
-  O:    BB   P2BB
+  C:    BB   P2AB
+  O:    BB   P3BA
