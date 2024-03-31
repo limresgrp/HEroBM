@@ -70,7 +70,6 @@ def minimise_impl(
         f = np.array([[a.x,a.y,a.z] for a in state.getForces()])
         if np.linalg.norm(f, axis=1).mean() > 10 * tolerance:
                 print(f"Failed minimisation. Force: {np.linalg.norm(f, axis=1).mean()}.")
-                print("Check box dimension, as it could be too small and cause energy minimisation to fail.")
                 return
         
         print(f"Finished. Time: {time.time() - t}")

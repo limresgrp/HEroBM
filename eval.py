@@ -25,8 +25,7 @@ def eval(args):
             try:
                 backmapping_dataset = backmapping.backmap(
                     frame_index=frame_index,
-                    optimize_backbone=True,
-                    lock_ca=False, 
+                    optimise_backbone=True,
                     minimise_dih=False
                 )
 
@@ -34,7 +33,7 @@ def eval(args):
                     backmapping_dataset=backmapping_dataset,
                     n_frames=n_frames,
                     frame_index=frame_index,
-                    previous_u=backmapped_u,
+                    backmapped_u=backmapped_u,
                 )
             except Exception as e:
                 print(e)
@@ -83,12 +82,6 @@ def parse_command_line(args=None):
         nargs='+',
         help="List of trajectory files to load.\n",
     )
-    parser.add_argument(
-        "-a"
-        "--atomistic",
-        action='store_true',
-        help="Enable this flag when you provide an atomistic input file.\n" +
-             "The system will be mapped to CG and then backmapped to atomistic.")
     parser.add_argument(
         "-ts",
         "--trajslice",

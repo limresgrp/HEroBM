@@ -1,116 +1,7 @@
 import torch
 import numpy as np
 from typing import List, Optional
-from heqbm.utils import DataDict
 from heqbm.utils.geometry import get_bonds, get_angles, get_dihedrals
-
-class Phi:
-
-    def __init__(self, prev_resid: int) -> None:
-        self.prev_resid = prev_resid
-        self.C_prev = None
-        self.N = None
-        self.CA = None
-        self.C = None
-        self.completion = 0
-    
-    def __call__(self, atom_name, resid, atom_index):
-        self.completion += 1
-        if atom_name == 'C' and resid == self.prev_resid and self.C_prev is None:
-            self.C_prev = atom_index
-        elif atom_name == 'N' and resid == self.prev_resid+1 and self.N is None:
-            self.N = atom_index
-        elif atom_name == 'CA' and resid == self.prev_resid+1 and self.CA is None:
-            self.CA = atom_index
-        elif atom_name == 'C' and resid == self.prev_resid+1 and self.C is None:
-            self.C = atom_index
-        else:
-            self.completion -= 1
-    
-    def is_completed(self):
-        return self.completion == 4
-    
-    def lock(self):
-        self.completion = 5
-    
-    def is_locked(self):
-        return self.completion > 4
-
-    def get_idcs(self):
-        assert self.is_completed()
-        return np.array([self.C_prev, self.N, self.CA, self.C])
-
-class Psi:
-
-    def __init__(self, resid: int) -> None:
-        self.resid = resid
-        self.N = None
-        self.CA = None
-        self.C = None
-        self.N_next = None
-        self.completion = 0
-    
-    def __call__(self, atom_name, resid, atom_index):
-        self.completion += 1
-        if atom_name == 'N' and resid == self.resid and self.N is None:
-            self.N = atom_index
-        elif atom_name == 'CA' and resid == self.resid and self.CA is None:
-            self.CA = atom_index
-        elif atom_name == 'C' and resid == self.resid and self.C is None:
-            self.C = atom_index
-        elif atom_name == 'N' and resid == self.resid+1 and self.N_next is None:
-            self.N_next = atom_index
-        else:
-            self.completion -= 1
-    
-    def is_completed(self):
-        return self.completion == 4
-    
-    def lock(self):
-        self.completion = 5
-    
-    def is_locked(self):
-        return self.completion > 4
-
-    def get_idcs(self):
-        assert self.is_completed()
-        return np.array([self.N, self.CA, self.C, self.N_next])
-
-class Omega:
-
-    def __init__(self, resid: int) -> None:
-        self.resid = resid
-        self.O = None
-        self.C = None
-        self.N_next = None
-        self.CA_next = None
-        self.completion = 0
-    
-    def __call__(self, atom_name, resid, atom_index):
-        self.completion += 1
-        if atom_name == 'O' and resid == self.resid and self.O is None:
-            self.O = atom_index
-        elif atom_name == 'C' and resid == self.resid and self.C is None:
-            self.C = atom_index
-        elif atom_name == 'N' and resid == self.resid+1 and self.N_next is None:
-            self.N_next = atom_index
-        elif atom_name == 'CA' and resid == self.resid+1 and self.CA_next is None:
-            self.CA_next = atom_index
-        else:
-            self.completion -= 1
-    
-    def is_completed(self):
-        return self.completion == 4
-    
-    def lock(self):
-        self.completion = 5
-    
-    def is_locked(self):
-        return self.completion > 4
-
-    def get_idcs(self):
-        assert self.is_completed()
-        return np.array([self.O, self.C, self.N_next, self.CA_next])
 
 
 class MinimizeEnergy(torch.nn.Module):
@@ -118,12 +9,11 @@ class MinimizeEnergy(torch.nn.Module):
     def __init__(self) -> None:
         super().__init__()
     
-    def evaluate_bond_energy(self, data, t: int = 0, pos: Optional[np.ndarray] = None, only_ca: bool = False):
-        if pos is None:
-            pos = data["pos"]
-        bond_idcs = data[f"{'ca_' if only_ca else ''}bond_idcs"]
-        bond_eq_val = data[f"{'ca_' if only_ca else ''}bond_eq_val"]
-        bond_tolerance = data[f"{'ca_' if only_ca else ''}bond_tolerance"]
+    def evaluate_bond_energy(self, data, t: int = 0):
+        pos = data["coords"]
+        bond_idcs = data["bond_idcs"]
+        bond_eq_val = data["bond_eq_val"]
+        bond_tolerance = data["bond_tolerance"]
 
         if len(bond_idcs) == 0:
             return torch.tensor(0., device=pos.device, requires_grad=True)
@@ -132,15 +22,15 @@ class MinimizeEnergy(torch.nn.Module):
         if t == 0:
             threshold = torch.pow(2*bond_eq_val, 2)
             actual_bonds_idcs = torch.argwhere(squared_distance < threshold).flatten()
-            data[f"{'ca_' if only_ca else ''}bond_idcs"] = bond_idcs[actual_bonds_idcs]
-            data[f"{'ca_' if only_ca else ''}bond_eq_val"] = bond_eq_val[actual_bonds_idcs]
-            data[f"{'ca_' if only_ca else ''}bond_tolerance"] = bond_tolerance[actual_bonds_idcs]
+            data["bond_idcs"] = bond_idcs[actual_bonds_idcs]
+            data["bond_eq_val"] = bond_eq_val[actual_bonds_idcs]
+            data["bond_tolerance"] = bond_tolerance[actual_bonds_idcs]
         bond_energy = 1000 * torch.mean(torch.max(squared_distance - (bond_tolerance)**2, torch.zeros_like(bond_val)))
         return bond_energy
 
     def evaluate_angle_energy(self, data, t: int = 0, pos: Optional[np.ndarray] = None):
         if pos is None:
-            pos = data["pos"]
+            pos = data["coords"]
         angle_idcs = data["angle_idcs"]
         angle_eq_val = data["angle_eq_val"]
         angle_tolerance = data["angle_tolerance"]
@@ -151,55 +41,39 @@ class MinimizeEnergy(torch.nn.Module):
         angle_energy = 150 * torch.mean(torch.max(torch.pow(angle_val - angle_eq_val, 2) - (angle_tolerance)**2, torch.zeros_like(angle_val)))
         return angle_energy
     
-    def evaluate_dihedral_energy(self, data, t: int = 0, pos: Optional[np.ndarray] = None):
+    def evaluate_torsion_energy(self, data, t: int = 0, pos: Optional[np.ndarray] = None):
         if pos is None:
-            pos = data["pos"]
-        dih_idcs = data["dih_idcs"]
-        dih_eq_val = data["dih_eq_val"]
+            pos = data["coords"]
+        tor_idcs = data["omega_idcs"]
+        tor_eq_val = data["omega_values"]
 
-        dih_val = get_dihedrals(pos, dih_idcs)[0]
-        dihedral_energy = torch.mean(2 + torch.cos(dih_val - dih_eq_val - np.pi) + torch.sin(dih_val - dih_eq_val - np.pi/2))
-        return dihedral_energy
+        tor_val = get_dihedrals(pos, tor_idcs)[0]
+        torsion_energy = 100 * torch.mean(2 + torch.cos(tor_val - tor_eq_val - np.pi) + torch.sin(tor_val - tor_eq_val - np.pi/2))
+        return torsion_energy
     
-    def evaluate_energy(self, data, t: int, minimise_dih: bool):
+    def evaluate_energy(self, data, t: int):
         bond_energy = self.evaluate_bond_energy(data, t=t)
         angle_energy = self.evaluate_angle_energy(data, t=t)
+        torsion_energy = self.evaluate_torsion_energy(data, t=t)
 
         energy_evaluation = {
-            "total_energy": bond_energy + angle_energy,
             "bond_energy": bond_energy,
             "angle_energy": angle_energy,
+            "torsion_energy": torsion_energy,
+            "total_energy": bond_energy + angle_energy + torsion_energy,
         }
-
-        if minimise_dih:
-            dihedral_energy = self.evaluate_dihedral_energy(data, t=t)
-            energy_evaluation["dihedral_energy"] = dihedral_energy
-            energy_evaluation["total_energy"] = energy_evaluation["total_energy"] + dihedral_energy
         
         return energy_evaluation
 
     def forward(
         self,
         data, t: int,
-        minimise_dih: bool,
-        unlock_ca: bool = False,
-        lock_ca: bool=False,
-        save_pos_minimisation_traj: bool = False
     ):
-        pos = data["pos"]
-        if save_pos_minimisation_traj:
-            data[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ].append(pos.cpu().numpy())
+        pos = data["coords"]
         if len(pos) == 0:
             return data, {}
         pos.requires_grad_(True)
-        if unlock_ca:
-            ca_bond_energy = self.evaluate_bond_energy(data, t=t, only_ca=True)
-            energy_evaluation = {
-                "total_energy": ca_bond_energy,
-                "bond_energy": ca_bond_energy,
-            }
-        else:
-            energy_evaluation = self.evaluate_energy(data, t=t, minimise_dih=minimise_dih)
+        energy_evaluation = self.evaluate_energy(data, t=t)
         
         gradient = torch.autograd.grad(
             [energy_evaluation.get("total_energy")],
@@ -211,16 +85,18 @@ class MinimizeEnergy(torch.nn.Module):
         if gradient is not None:
             gradient = -gradient[0].detach()
             gradient = torch.nan_to_num(gradient, nan=0.)
-            fnorm = gradient.norm(dim=-1, keepdim=True)
-            gradient[fnorm.flatten() > .1/data["dtau"]] *= .1/data["dtau"]/fnorm[fnorm.flatten() > .1/data["dtau"]]
+            fnorm = gradient.norm(dim=-1)
+            gradient[fnorm > .1/data["dtau"]] *= .1/data["dtau"]/fnorm[fnorm > .1/data["dtau"]][..., None]
             energy_evaluation["gradient"] = gradient
 
             pos.requires_grad_(False)
-            if unlock_ca or not lock_ca:
-                pos += gradient * data["dtau"]
-            else:
-                pos[data["movable_pos_idcs"]] += gradient[data["movable_pos_idcs"]] * data["dtau"]
-            data["pos"] = pos
+            pos += gradient * data["dtau"]
+
+            weighted_pos = torch.einsum('bijk,ij->bik', torch.nan_to_num(pos[:, data["bb_atom_idcs"]]), data["bb_atom_weights"])
+            recentering_vectors = data["bb_bead_coords"] - weighted_pos
+            pos[:, data["bb_atom_idcs"]] += recentering_vectors[..., None, :]
+
+            data["coords"] = pos
         return data, energy_evaluation
     
     def minimise(
@@ -228,37 +104,33 @@ class MinimizeEnergy(torch.nn.Module):
         data,
         dtau=None,
         eps: float = 1e-3,
-        minimise_dih: bool = True,
-        unlock_ca: bool = False,
-        lock_ca: bool = False,
+        device: str = 'cpu',
         verbose: bool = False,
-        trace_every: int = 0,
     ):
+        for k, v in data.items():
+            if v.dtype.type is not np.str_:
+                data[k] = torch.from_numpy(v).to(device)
+        
         if dtau is not None:
             data["dtau"] = dtau
-        if trace_every and DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ not in data:
-            data[DataDict.BB_ATOM_POSITION_MINIMISATION_TRAJ] = []
         last_total_energy = torch.inf
         for t in range(1, 100001):
-            data, energy_evaluation = self(
-                data,
-                t,
-                minimise_dih,
-                unlock_ca,
-                lock_ca,
-                save_pos_minimisation_traj=(trace_every>0)and(not t%trace_every)
-            )
+            data, energy_evaluation = self(data, t)
             if energy_evaluation is None:
                 return
             if not t % 300:
                 if verbose:
                     print(f"Step {t}")
-                    for k in ["bond_energy", "angle_energy", "dihedral_energy", "total_energy"]:
+                    for k in ["bond_energy", "angle_energy", "torsion", "total_energy"]:
                         print(f"{k}: {energy_evaluation.get(k, torch.tensor(torch.nan)).item()}")
                 current_total_energy = energy_evaluation.get("total_energy")
                 if last_total_energy - current_total_energy < eps:
                     break
                 last_total_energy = current_total_energy
+        
+        for k, v in data.items():
+            if isinstance(v, torch.Tensor):
+                data[k] = v.detach().cpu().numpy()
 
 
 def cat_interleave(array_list: List[np.ndarray]):

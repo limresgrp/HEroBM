@@ -1,7 +1,6 @@
-from typing import Optional, Union
 import torch
 import numpy as np
-
+from typing import Optional, Union
 from heqbm.utils import DataDict
 
 def Rx(theta: float) -> np.ndarray:
@@ -72,7 +71,12 @@ def get_angles(pos: torch.Tensor, angle_idcs: torch.Tensor, return_vectors = Fal
         return get_angles_from_vectors(b0, b1), b0, b1
     return get_angles_from_vectors(b0, b1)
 
-def get_dihedrals(pos: torch.Tensor, dihedral_idcs: torch.Tensor) -> torch.Tensor:
+def get_dihedrals(pos, dihedral_idcs):
+    if isinstance(pos, torch.Tensor):
+        return get_dihedrals_torch(pos, dihedral_idcs)
+    return get_dihedrals_numpy(pos, dihedral_idcs)
+
+def get_dihedrals_torch(pos: torch.Tensor, dihedral_idcs: torch.Tensor) -> torch.Tensor:
     """ Compute dihedral values (in radiants) over specified dihedral_idcs for every frame in the batch
 
         :param pos:        torch.Tensor | shape (batch, n_atoms, xyz)
@@ -102,25 +106,58 @@ def get_dihedrals(pos: torch.Tensor, dihedral_idcs: torch.Tensor) -> torch.Tenso
 
     return torch.atan2(y, x).reshape(-1, dihedral_idcs.shape[0])
 
+def get_dihedrals_numpy(pos: np.ndarray, dihedral_idcs: np.ndarray) -> np.ndarray:
+    """ Compute dihedral values (in radiants) over specified dihedral_idcs for every frame in the batch
+
+        :param pos:        torch.Tensor | shape (batch, n_atoms, xyz)
+        :param dihedral_idcs: torch.Tensor | shape (n_dihedrals, 4)
+        :return:           torch.Tensor | shape (batch, n_dihedrals)
+    """
+
+    if len(pos.shape) == 2:
+        pos = np.expand_dims(pos, axis=0)
+    if len(dihedral_idcs.shape) == 1:
+        dihedral_idcs = np.expand_dims(dihedral_idcs, axis=0)
+    p = pos[:, dihedral_idcs, :]
+    p0 = p[..., 0, :]
+    p1 = p[..., 1, :]
+    p2 = p[..., 2, :]
+    p3 = p[..., 3, :]
+
+    b0 = -1.0*(p1 - p0)
+    b1 = p2 - p1
+    b2 = p3 - p2
+
+    b1 = b1 / np.linalg.norm(b1, axis=-1, keepdims=True)
+
+    v = b0 - np.einsum("ijk,ikj->ij", b0, np.transpose(b1, (0, 2, 1)))[..., None] * b1
+    w = b2 - np.einsum("ijk,ikj->ij", b2, np.transpose(b1, (0, 2, 1)))[..., None] * b1
+
+    x = np.einsum("ijk,ikj->ij", v, np.transpose(w, (0, 2, 1)))
+    y = np.einsum("ijk,ikj->ij", np.cross(b1, v), np.transpose(w, (0, 2, 1)))
+
+    return np.arctan2(y, x).reshape(-1, dihedral_idcs.shape[0])
+
 def get_RMSD(
-    pos: Union[torch.Tensor, np.ndarray],
+    pred: Union[torch.Tensor, np.ndarray],
     ref:  Union[torch.Tensor, np.ndarray],
     fltr: Optional[np.ndarray] = None,
     ignore_zeroes: bool = False,
     ignore_nan: bool = False,
 ):
-    if isinstance(pos, torch.Tensor):
-        pos = pos.cpu().numpy()
+    if isinstance(pred, torch.Tensor):
+        pred = pred.cpu().numpy()
     if isinstance(ref, torch.Tensor):
         ref = ref.cpu().numpy()
     if fltr is not None:
-        pos = pos[..., fltr, :]
+        pred = pred[..., fltr, :]
         ref = ref[..., fltr, :]
     if ignore_nan:
-        ref = ref[:, ~np.any(np.isnan(pos)[0], axis=-1)]
-        pos = pos[:, ~np.any(np.isnan(pos)[0], axis=-1)]
+        nan_fltr = ~np.any(np.isnan(pred), axis=-1)
+        pred = pred[nan_fltr]
+        ref = ref[nan_fltr]
     not_zeroes = np.ones_like(ref).mean(axis=-1).astype(int) if not ignore_zeroes else (~np.all(ref == 0., axis=-1)).astype(int)
-    sd =  (np.power(pos - ref, 2).sum(-1)) * not_zeroes
+    sd =  (np.power(pred - ref, 2).sum(-1)) * not_zeroes
     msd = sd.sum() / not_zeroes.sum()
     return np.sqrt(msd)
 
@@ -168,3 +205,60 @@ def build_peptide_dihedral_idcs(atom_names: np.ndarray, skip_first_res=0):
             CG_orientation_peptide_dihedral_id = [0, 0, 0, 0]
             c = 0
     return torch.tensor(CG_orientation_peptide_dihedral_idcs).long()
+
+def rotation_matrix(axis, theta):
+    """
+    Return the rotation matrix associated with counterclockwise rotation about
+    the given axis by theta radians.
+    """
+    axis = np.asarray(axis)
+    axis = axis / np.sqrt(np.dot(axis, axis))
+    a = np.cos(theta / 2.0)
+    b, c, d = -axis * np.sin(theta / 2.0)
+    aa, bb, cc, dd = a * a, b * b, c * c, d * d
+    bc, ad, ac, ab, bd, cd = b * c, a * d, a * c, a * b, b * d, c * d
+    return np.array([[aa + bb - cc - dd, 2 * (bc + ad), 2 * (bd - ac)],
+                     [2 * (bc - ad), aa + cc - bb - dd, 2 * (cd + ab)],
+                     [2 * (bd + ac), 2 * (cd - ab), aa + dd - bb - cc]])
+
+def bound_angle(angle):
+    result = (angle + np.pi) % (2 * np.pi) - np.pi
+    return result
+
+def set_phi(coords: np.ndarray, phi_atom_idcs: np.ndarray, phi_target_values: np.ndarray):
+    """
+    Rotate residues to match the given phi torsion angles for specified residues
+    """
+
+    phi_values = get_dihedrals(coords, phi_atom_idcs)[0]
+
+    # Calculate the rotation matrices for phi and psi rotations
+    for phi_value, idcs, phi_target_value in zip(phi_values, phi_atom_idcs, phi_target_values):
+        _, N, CA, _ = idcs
+        axis = coords[CA] - coords[N]
+        R = rotation_matrix(axis, bound_angle(phi_target_value - phi_value))
+
+        # Apply the rotations to all atoms previous to N
+        N_coord = np.expand_dims(coords[N], axis=0)
+        coords[:N] = np.matmul(coords[:N] - N_coord, R) + N_coord
+
+    return coords
+
+def set_psi(coords: np.ndarray, psi_atom_idcs: np.ndarray, psi_target_values: np.ndarray):
+    """
+    Rotate residues to match the given phi torsion angles for specified residues
+    """
+
+    psi_values = get_dihedrals(coords, psi_atom_idcs)[0]
+
+    # Calculate the rotation matrices for phi and psi rotations
+    for psi_value, idcs, psi_target_value in zip(psi_values, psi_atom_idcs, psi_target_values):
+        _, CA, C, _ = idcs
+        axis = coords[C] - coords[CA]
+        R = rotation_matrix(axis, bound_angle(psi_target_value - psi_value))
+
+        # Apply the rotations to all atoms previous to N
+        C_coord = np.expand_dims(coords[C], axis=0)
+        coords[C:] = np.matmul(coords[C:] - C_coord, R) + C_coord
+
+    return coords

@@ -5,8 +5,8 @@ import numpy as np
 from typing import Dict, List, Optional, Tuple
 from torch.utils.data import Dataset
 from heqbm.backmapping.dataset import Data
-from heqbm.mapper import Mapper
 from heqbm.utils import DataDict
+from cgmap.mapping import Mapper
 
 def get_datasets_from_mapping(mapping: Mapper, conf: Dict, shuffle: bool = False) -> Tuple[Dict[str, np.ndarray]]:
     dataset: Dict = mapping.dataset
@@ -58,9 +58,8 @@ class InMemoryDataset(Dataset):
             fixed_fields: List[str] = [
                 DataDict.ATOM_TYPES,
                 DataDict.BEAD_TYPES,
-                DataDict.DIHEDRAL_IDCS,
+                DataDict.TORSION_IDCS,
                 DataDict.BEAD2ATOM_IDCS,
-                DataDict.BEAD2ATOM_IDCS_MASK,
                 DataDict.OMEGA_DIH_IDCS,
             ],
         ):
