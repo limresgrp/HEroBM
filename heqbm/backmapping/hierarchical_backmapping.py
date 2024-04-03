@@ -78,6 +78,8 @@ class HierarchicalBackmapping:
             self.input_filename = input
             self.input_filenames = [self.input_filename]
 
+        self.device = self.config.get("device", "cpu")
+
         ### Load Model ###
             
         print("Loading model...")
@@ -114,8 +116,6 @@ class HierarchicalBackmapping:
             self.model_r_max = float(training_model_config[R_MAX_KEY])
             print("Loaded model from training session.")
         
-        self.device = self.config.get("device", "cpu")
-        self.model.to(self.device)
         self.model.eval()
 
         ### Initialize energy minimiser for reconstructing backbone ###
@@ -253,7 +253,7 @@ class HierarchicalBackmapping:
                 print(f"RMSD All: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], ignore_nan=True):4.3f} Angstrom")
                 no_bb_fltr = np.array([an not in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
                 print(f"RMSD on Side-Chains: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=no_bb_fltr, ignore_nan=True):4.3f} Angstrom")
-                bb_fltr = np.array([an in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
+                bb_fltr = np.array([an in ["CA", "C", "N"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
                 print(f"RMSD on Backbone: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=bb_fltr, ignore_nan=True):4.3f} Angstrom")
             except:
                 pass
@@ -436,6 +436,7 @@ def load_model(config: Dict, model_dir: Optional[Path] = None, model_config: Opt
     model, training_model_config = Trainer.load_model_from_training_session(
         traindir=model_dir,
         model_name=model_name,
+        device=config.get('device', 'cpu')
     )
 
     return model, training_model_config
@@ -467,10 +468,10 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
         AtomicDataDict.ORIG_EDGE_INDEX_KEY: edge_index,
         AtomicDataDict.EDGE_INDEX_KEY: edge_index,
         AtomicDataDict.BATCH_KEY: batch,
-        DataDict.BEAD2ATOM_IDCS: bead2atom_idcs,
-        f"{DataDict.BEAD2ATOM_IDCS}_slices": torch.tensor([0, len(bead2atom_idcs)]),
-        DataDict.BEAD2ATOM_WEIGHTS: bead2atom_weights,
-        f"{DataDict.BEAD2ATOM_WEIGHTS}_slices": torch.tensor([0, len(bead2atom_weights)]),
+        DataDict.BEAD2ATOM_RECONSTRUCTED_IDCS: bead2atom_idcs,
+        f"{DataDict.BEAD2ATOM_RECONSTRUCTED_IDCS}_slices": torch.tensor([0, len(bead2atom_idcs)]),
+        DataDict.BEAD2ATOM_RECONSTRUCTED_WEIGHTS: bead2atom_weights,
+        f"{DataDict.BEAD2ATOM_RECONSTRUCTED_WEIGHTS}_slices": torch.tensor([0, len(bead2atom_weights)]),
         DataDict.LEVEL_IDCS_MASK: lvl_idcs_mask,
         f"{DataDict.LEVEL_IDCS_MASK}_slices": torch.tensor([0, len(lvl_idcs_mask)]),
         DataDict.LEVEL_IDCS_ANCHOR_MASK: lvl_idcs_anchor_mask,
@@ -640,30 +641,34 @@ def build_minimiser_data(dataset: Dict):
     bond_idcs.append(dataset_bond_idcs[CA_C_filter])
     bond_eq_val.append([1.52] * CA_C_filter.sum())
     bond_tolerance.append([0.02] * CA_C_filter.sum())
-    C_O_filter = np.all(atom_names[dataset_bond_idcs] == ['CA', 'C'], axis=1)
+    C_O_filter = np.all(atom_names[dataset_bond_idcs] == ['C', 'O'], axis=1)
     bond_idcs.append(dataset_bond_idcs[C_O_filter])
     bond_eq_val.append([1.24] * C_O_filter.sum())
     bond_tolerance.append([0.02] * C_O_filter.sum())
     C_N_filter = np.all(atom_names[dataset_bond_idcs] == ['C', 'N'], axis=1)
     bond_idcs.append(dataset_bond_idcs[C_N_filter])
-    bond_eq_val.append([1.34] * C_N_filter.sum())
+    bond_eq_val.append([1.32] * C_N_filter.sum())
     bond_tolerance.append([0.02] * C_N_filter.sum())
 
     N_CA_C_filter = np.all(atom_names[dataset_angle_idcs] == ['N', 'CA', 'C'], axis=1)
     angle_idcs.append(dataset_angle_idcs[N_CA_C_filter])
-    angle_eq_val.append([1.9216075] * N_CA_C_filter.sum())
+    angle_eq_val.append([1.9216075] * N_CA_C_filter.sum()) # 110.1 degrees
     angle_tolerance.append([0.035] * N_CA_C_filter.sum())
     CA_C_O_filter = np.all(atom_names[dataset_angle_idcs] == ['CA', 'C', 'O'], axis=1)
     angle_idcs.append(dataset_angle_idcs[CA_C_O_filter])
-    angle_eq_val.append([2.0944] * CA_C_O_filter.sum())
+    angle_eq_val.append([2.1031217] * CA_C_O_filter.sum()) # 120.5 degrees
     angle_tolerance.append([0.035] * CA_C_O_filter.sum())
     CA_C_N_filter = np.all(atom_names[dataset_angle_idcs] == ['CA', 'C', 'N'], axis=1)
     angle_idcs.append(dataset_angle_idcs[CA_C_N_filter])
-    angle_eq_val.append([2.0350539] * CA_C_N_filter.sum())
+    angle_eq_val.append([2.0350539] * CA_C_N_filter.sum()) # 116.6 degrees
     angle_tolerance.append([0.035] * CA_C_N_filter.sum())
+    O_C_N_filter = np.all(atom_names[dataset_angle_idcs] == ['O', 'C', 'N'], axis=1)
+    angle_idcs.append(dataset_angle_idcs[O_C_N_filter])
+    angle_eq_val.append([2.14675] * O_C_N_filter.sum()) # 123.0 degrees
+    angle_tolerance.append([0.035] * O_C_N_filter.sum())
     C_N_CA_filter = np.all(atom_names[dataset_angle_idcs] == ['C', 'N', 'CA'], axis=1)
     angle_idcs.append(dataset_angle_idcs[C_N_CA_filter])
-    angle_eq_val.append([2.1275564] * C_N_CA_filter.sum())
+    angle_eq_val.append([2.1275564] * C_N_CA_filter.sum()) # 121.9 degrees
     angle_tolerance.append([0.035] * C_N_CA_filter.sum())
     
     # ------------------------------------------------------------------------------- #
@@ -676,8 +681,6 @@ def build_minimiser_data(dataset: Dict):
     angle_eq_val = np.concatenate(angle_eq_val)
     angle_tolerance = np.concatenate(angle_tolerance)
 
-    ca_pos_idcs = atom_names == 'CA'
-
     data = {
         "bond_idcs": bond_idcs,
         "bond_eq_val": bond_eq_val,
@@ -685,7 +688,6 @@ def build_minimiser_data(dataset: Dict):
         "angle_idcs": angle_idcs,
         "angle_eq_val": angle_eq_val,
         "angle_tolerance": angle_tolerance,
-        "ca_pos_idcs": ca_pos_idcs,
     }
     
     return data
@@ -696,11 +698,15 @@ def update_minimiser_data(minimiser_data: Dict, dataset: Dict):
 
     omega_idcs = dataset_torsion_idcs[np.all(atom_names[dataset_torsion_idcs] == np.array(['CA', 'C', 'N', 'CA']), axis=-1)]
     omega_values = np.array([np.pi] * len(omega_idcs))
+    omega_tolerance = np.array([0.436332] * len(omega_idcs)) # 25 deg
 
     bead_names = dataset[DataDict.BEAD_NAMES]
     bb_bead_idcs = np.isin(bead_names, ['BB'])
     bb_bead_coords = dataset[DataDict.BEAD_POSITION][:, bb_bead_idcs]
     bb_atom_idcs: np.ma.masked_array = dataset[DataDict.BEAD2ATOM_RECONSTRUCTED_IDCS][bb_bead_idcs]
+    bb_atom_names = atom_names[bb_atom_idcs]
+    bb_atom_names[bb_atom_idcs.mask] = ''
+    bb_atom_idcs[~np.isin(bb_atom_names, ['CA', 'C', 'N', 'O'])] = -1
     bb_atom_weights: np.ma.masked_array = dataset[DataDict.BEAD2ATOM_RECONSTRUCTED_WEIGHTS][bb_bead_idcs]
 
     data = {
@@ -711,6 +717,7 @@ def update_minimiser_data(minimiser_data: Dict, dataset: Dict):
         "atom_names":      atom_names,
         "omega_idcs":      omega_idcs,
         "omega_values":    omega_values,
+        "omega_tolerance": omega_tolerance,
     }
 
     if DataDict.BB_PHIPSI_PRED in dataset and dataset[DataDict.BB_PHIPSI_PRED].shape[-1] == 2:

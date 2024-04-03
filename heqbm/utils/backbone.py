@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from typing import List, Optional
-from heqbm.utils.geometry import get_bonds, get_angles, get_dihedrals
+from heqbm.utils.geometry import bound_angle, get_bonds, get_angles, get_dihedrals
 
 
 class MinimizeEnergy(torch.nn.Module):
@@ -46,9 +46,15 @@ class MinimizeEnergy(torch.nn.Module):
             pos = data["coords"]
         tor_idcs = data["omega_idcs"]
         tor_eq_val = data["omega_values"]
+        tor_tolerance = data["omega_tolerance"]
 
         tor_val = get_dihedrals(pos, tor_idcs)[0]
-        torsion_energy = 100 * torch.mean(2 + torch.cos(tor_val - tor_eq_val - np.pi) + torch.sin(tor_val - tor_eq_val - np.pi/2))
+        torsion_error = bound_angle(tor_val - tor_eq_val)
+        tolerance_bounded_error = torch.sign(torsion_error) * torch.max(torch.abs(torsion_error) - tor_tolerance, torch.zeros_like(tor_val))
+        torsion_energy = 100 * torch.sum(
+            2 +
+            torch.cos(tolerance_bounded_error - np.pi) +
+            torch.sin(tolerance_bounded_error - np.pi/2))
         return torsion_energy
     
     def evaluate_energy(self, data, t: int):
@@ -93,8 +99,9 @@ class MinimizeEnergy(torch.nn.Module):
             pos += gradient * data["dtau"]
 
             weighted_pos = torch.einsum('bijk,ij->bik', torch.nan_to_num(pos[:, data["bb_atom_idcs"]]), data["bb_atom_weights"])
-            recentering_vectors = data["bb_bead_coords"] - weighted_pos
-            pos[:, data["bb_atom_idcs"]] += recentering_vectors[..., None, :]
+            recentering_vectors = (data["bb_bead_coords"] - weighted_pos)[..., None, :].repeat(1, 1, data["bb_atom_idcs"].shape[-1], 1)
+            recentering_vectors[:, data["bb_atom_idcs"] == -1] = 0.
+            pos[:, data["bb_atom_idcs"]] += recentering_vectors
 
             data["coords"] = pos
         return data, energy_evaluation
