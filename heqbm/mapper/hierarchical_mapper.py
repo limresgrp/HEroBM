@@ -35,7 +35,7 @@ class HierarchicalMapper(Mapper):
     def bead2atom_reconstructed_idcs_mask(self):
         if self._bead2atom_reconstructed_idcs is None:
             return None
-        return self._bead2atom_reconstructed_idcs != -1
+        return self._bead2atom_reconstructed_idcs == -1
 
     @property
     def bead2atom_reconstructed_idcs(self):
@@ -110,9 +110,9 @@ class HierarchicalMapper(Mapper):
     
     def update_extra_pos_impl(self, pos):
         frame_bead2atom_relative_vectors = np.zeros((self.num_beads, self.bead_reconstructed_size, 3), dtype=float)
-        reconstructed_atom_pos = pos[self.bead2atom_reconstructed_idcs.data[self.bead2atom_reconstructed_idcs.mask]]
+        reconstructed_atom_pos = pos[self.bead2atom_reconstructed_idcs.data[~self.bead2atom_reconstructed_idcs.mask]]
         anchor_pos = pos[self._level_idcs_anchor_mask.max(axis=0)[self._level_idcs_mask.max(axis=0)]]
-        frame_bead2atom_relative_vectors[self.bead2atom_reconstructed_idcs_mask] = reconstructed_atom_pos - anchor_pos
+        frame_bead2atom_relative_vectors[~self.bead2atom_reconstructed_idcs_mask] = reconstructed_atom_pos - anchor_pos
         self.bead2atom_relative_vectors_list.append(frame_bead2atom_relative_vectors)
 
     def store_extra_pos_impl(self):
@@ -132,11 +132,18 @@ class HierarchicalMapper(Mapper):
         self._bond_idcs = self._bond_idcs[np.all(np.isin(self._bond_idcs, atoms_to_reconstruct_idcs), axis=1)]
         
         # Angles
-        df1 = pd.DataFrame(self._bond_idcs, columns=['a1', 'a2'])
-        df2 = pd.DataFrame(self._bond_idcs, columns=['a2', 'a3'])
-        df3 = df1.merge(df2, how='outer')
-        df3 = df3.dropna().astype(int)
-        self._angle_idcs = df3.values
+        df1A = pd.DataFrame(self._bond_idcs, columns=['a1', 'a2'])
+        df1B = pd.DataFrame(self._bond_idcs, columns=['a2', 'a1'])
+        df2  = pd.DataFrame(self._bond_idcs, columns=['a2', 'a3'])
+        df3A = df1A.merge(df2, how='outer')
+        df3A = df3A.dropna().astype(int)
+        df3B = df1B.merge(df2, how='outer')
+        df3B = df3B.dropna().astype(int)
+        cols = df3B.columns.to_list()
+        cols[:2] = cols[1::-1]
+        df3B = df3B[cols]
+        df3B = df3B[df3B['a1'] != df3B['a3']]
+        self._angle_idcs = np.concatenate([df3A.values, df3B.values])
         self._angle_idcs = self._angle_idcs[np.all(np.isin(self._angle_idcs, atoms_to_reconstruct_idcs), axis=1)]
 
         # Torsions
