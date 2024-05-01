@@ -8,7 +8,7 @@ from e3nn.util.jit import compile_mode
 from e3nn.util.codegen import CodeGenMixin
 from e3nn.math import normalize2mom
 
-from nequip.nn.nonlinearities import ShiftedSoftPlus
+from geqtrain.nn.nonlinearities import ShiftedSoftPlus
 
 
 class ScalarMLPFunction(CodeGenMixin, torch.nn.Module):

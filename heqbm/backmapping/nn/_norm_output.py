@@ -1,6 +1,6 @@
 import torch
-from nequip.data import AtomicDataDict
-from nequip.nn import GraphModuleMixin
+from geqtrain.data import AtomicDataDict
+from geqtrain.nn import GraphModuleMixin
 from e3nn.util.jit import compile_mode
 
 

@@ -23,6 +23,7 @@ from heqbm.backmapping.allegro._keys import (
     EQUIVARIANT_ATOM_INPUT_FEATURES,
     EQUIVARIANT_EDGE_LENGTH_FEATURES,
     EQUIVARIANT_ATOM_LENGTH_FEATURES,
+    NODE_OUTPUT,
 )
 from heqbm.backmapping.allegro.nn import (
     NormalizedBasis,
@@ -31,12 +32,12 @@ from heqbm.backmapping.allegro.nn import (
 )
 
 from heqbm.backmapping.nn import (
-    HierarchicalBackmappingV2Module,
+    CoreModule,
     HierarchicalBackmappingReadoutModule,
 )
 
 
-def HierarchicalBackmappingV2(config, initialize: bool, dataset: Optional[ConcatDataset] = None):
+def Model(config, initialize: bool, dataset: Optional[ConcatDataset] = None):
     logging.debug("Building HEqBM model...")
 
     # Handle avg num neighbors auto
@@ -88,7 +89,7 @@ def HierarchicalBackmappingV2(config, initialize: bool, dataset: Optional[Concat
         "spharm": SphericalHarmonicEdgeAttrs,
         # The core model:
         "core": (
-            HierarchicalBackmappingV2Module,
+            CoreModule,
             dict(
                 field=AtomicDataDict.EDGE_ATTRS_KEY,  # initial input is the edge SH
                 edge_invariant_field=AtomicDataDict.EDGE_EMBEDDING_KEY,
@@ -98,7 +99,7 @@ def HierarchicalBackmappingV2(config, initialize: bool, dataset: Optional[Concat
                 eq_out_field=EQUIVARIANT_EDGE_FEATURES,
                 readout_features=config.get("readout_pre_pooling", False),
                 inv_out_irreps=o3.Irreps(config.get("inv_out_irreps", "2x0e")),
-                eq_out_irreps=o3.Irreps(config.get("eq_out_irreps", "4x1o")),
+                eq_out_irreps=o3.Irreps(config.get("out_irreps", None)),
                 eq_node_in_feat_field=EQUIVARIANT_ATOM_INPUT_FEATURES,
                 eq_node_in_feat_irreps=o3.Irreps(config.get("eq_node_in_irreps", "0x1o")),
             ),
@@ -136,9 +137,10 @@ def HierarchicalBackmappingV2(config, initialize: bool, dataset: Optional[Concat
             dict(
                 inv_field=INVARIANT_ATOM_FEATURES,
                 eq_field=EQUIVARIANT_ATOM_FEATURES,
+                out_field=NODE_OUTPUT,
                 readout_features=not config.get("readout_pre_pooling", False),
                 inv_out_irreps=o3.Irreps(config.get("inv_out_irreps", "2x0e")),
-                eq_out_irreps=o3.Irreps(config.get("eq_out_irreps", "4x1o")),
+                eq_out_irreps=o3.Irreps(config.get("out_irreps", None)),
                 normalize_out_features=config.get("normalize_out_features", True)
             ),
         )

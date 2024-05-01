@@ -7,7 +7,7 @@ if sys.version_info[1] >= 8:
 else:
     from typing_extensions import Final
 
-from nequip.data import register_fields
+from geqtrain.data import register_fields
 
 EDGE_ENERGY: Final[str] = "edge_energy"
 EDGE_FORCES: Final[str] = "edge_forces"
@@ -22,6 +22,7 @@ EQUIVARIANT_ATOM_LENGTH_FEATURES: Final[str] = "eq_atom_length_features"
 EQUIVARIANT_ATOM_INPUT_FEATURES: Final[str] = "eq_atom_in_features"
 
 ATOM_POSITIONS: Final[str] = "atom_pos"
+NODE_OUTPUT: Final[str] = "node_output"
 
 CONTRIBUTIONS_KEY: Final[str] = "contributions"
 CURL: Final[str] = "curl"

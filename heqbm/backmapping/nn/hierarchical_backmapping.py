@@ -9,8 +9,8 @@ from e3nn import o3
 from e3nn.util.jit import compile_mode
 
 from nequip.data import AtomicDataDict
-from nequip.nn import GraphModuleMixin
-from nequip.utils.tp_utils import tp_path_exists
+from geqtrain.nn import GraphModuleMixin
+from geqtrain.utils.tp_utils import tp_path_exists
 
 from heqbm.backmapping.allegro.nn._fc import ScalarMLPFunction, ExponentialScalarMLPFunction
 from heqbm.backmapping.allegro import _keys

@@ -4,6 +4,7 @@ from heqbm.utils.pdbFixer import joinPDBs
 from heqbm.backmapping.hierarchical_backmapping import HierarchicalBackmapping
 
 # python eval.py -c config/backmapping/CG-vince.yaml -d cuda:1 -ts 5000:15000 -o /storage_common/angiod/A2A/CG/Vince/SASA-R12-HUGE/
+# python eval.py -m ca -i /storage_common/angiod/PED/pdb/valid/PED00023e001.pdb -s protein -md config/training/PDB6K-CA-geqmodel.yaml -d cuda:1 -ts :1 -o ./
 
 
 def eval(args):
@@ -26,7 +27,6 @@ def eval(args):
                 backmapping_dataset = backmapping.backmap(
                     frame_index=frame_index,
                     optimise_backbone=True,
-                    minimise_dih=False
                 )
 
                 backmapped_u = backmapping.to_pdb(

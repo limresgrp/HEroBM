@@ -29,11 +29,12 @@ from heqbm.backmapping.allegro._keys import (
     ATOM_POSITIONS,
 )
 
-from nequip.utils import Config
-from nequip.utils._global_options import _set_global_options
-from nequip.train import Trainer
-from nequip.data import AtomicDataDict
-from nequip.scripts.deploy import load_deployed_model, R_MAX_KEY
+from geqtrain.utils import Config
+from geqtrain.utils._global_options import _set_global_options
+from geqtrain.train import Trainer
+from geqtrain.data import AtomicDataDict
+from geqtrain.scripts.evaluate import evaluate
+from geqtrain.scripts.deploy import load_deployed_model, R_MAX_KEY
 
 
 class HierarchicalBackmapping:
@@ -50,34 +51,12 @@ class HierarchicalBackmapping:
 
     def __init__(self, args_dict) -> None:
         
-        ### --------------------- ###
-        self.config: Dict[str, str] = dict()
-
-        config = args_dict.pop("config", None)
-        if config is not None:
-            self.config.update(yaml.safe_load(Path(config).read_text()))
-
-        args_dict = {key: value for key, value in args_dict.items() if value is not None}
-        self.config.update(args_dict)
-
-        if self.config.get("trajslice", None) is not None:
-            self.config["trajslice"] = parse_slice(self.config["trajslice"])
-
         ### Parse Input ###
         
-        self.mapping = HierarchicalMapper(config=self.config)
+        self.mapping = HierarchicalMapper(args_dict=args_dict)
+        self.config = self.mapping.config
 
         self.output_folder = self.config.get("output")
-        input = self.config.get("input")
-        if os.path.isdir(input):
-            self.input_folder = input
-            input_format = self.config.get("inputformat", "*")
-            self.input_filenames = list(glob.glob(os.path.join(self.input_folder, f"*.{input_format}")))
-        else:
-            self.input_folder = None
-            self.input_filename = input
-            self.input_filenames = [self.input_filename]
-
         self.device = self.config.get("device", "cpu")
 
         ### Load Model ###
@@ -152,7 +131,7 @@ class HierarchicalBackmapping:
             optimise_dihedrals: bool = False,
             verbose: bool = False,
     ):
-        pred_u = build_universe(backmapping_dataset, 1, self.input_u.dimensions)
+        pred_u = build_universe(backmapping_dataset, 1, self.mapping.selection.dimensions)
         positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED]
         not_nan_filter = ~np.any(np.isnan(positions_pred), axis=-1)
         pred_u.atoms.positions = positions_pred[not_nan_filter]
@@ -168,7 +147,7 @@ class HierarchicalBackmapping:
         # Step 1: initial minimization: adjust bonds, angles and Omega dihedral
         self.minimiser.minimise(
             data=minimiser_data,
-            dtau=self.config.get("bb_minimisation_dtau", 1e-1),
+            dtau=1e-1, # self.config.get("bb_minimisation_dtau", 1e-1),
             eps=self.config.get("bb_initial_minimisation_eps", 1e-2),
             device=self.device,
             verbose=verbose,
@@ -177,7 +156,7 @@ class HierarchicalBackmapping:
         if optimise_dihedrals:
             self.optimise_dihedrals(minimiser_data=minimiser_data)
         
-        minimised_u = build_universe(backmapping_dataset, 1, self.input_u.dimensions)
+        minimised_u = build_universe(backmapping_dataset, 1, self.mapping.selection.dimensions)
         minimised_u.atoms.positions = minimiser_data["coords"][not_nan_filter]
 
         rmsds = align.alignto(
@@ -190,34 +169,50 @@ class HierarchicalBackmapping:
         backmapping_dataset[DataDict.ATOM_POSITION_PRED][not_nan_filter] = np.expand_dims(minimised_u.atoms.positions, axis=0)
         return backmapping_dataset
         
-    def map(
-        self,
-        index: int,
-        skip_if_existent: bool = True,
-    ):
-        if self.input_folder is None:
-            self.mapping.map()
-        else:
-            self.input_filename = self.input_filenames[index]
-            self.config["input"] = self.input_filename
-            self.config["inputtraj"] = []
-            self.config["output"] = os.path.join(self.output_folder, '.'.join(basename(self.input_filename).split('.')[:-1]))
-            if skip_if_existent and os.path.isdir(self.config["output"]):
-                return True
-            print(f"Mapping structure {self.input_filename}")
-            self.mapping.map()
-        self.input_u = mda.Universe(self.config.get("input"))
-        self.cg_u = build_CG(self.mapping.dataset)
-        return False
+    def map(self):
+        for mapping in self.mapping():
+            yield mapping
+
+    def backmap(self, mapping, optimise_backbone: bool = True):
+        backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames = [], [], [], []
+        frame_idcs = range(0, len(mapping))
+        n_frames = max(frame_idcs) + 1
+
+        backmapped_u = None
+        for frame_index in frame_idcs:
+            try:
+                backmapping_dataset = self.backmap_impl(
+                    frame_index=frame_index,
+                    optimise_backbone=optimise_backbone,
+                    optimise_dihedrals=False,
+                )
+
+                backmapped_u, backmapped_filename, backmapped_minimised_filename, true_filename, cg_filename = self.to_pdb(
+                    backmapping_dataset=backmapping_dataset,
+                    n_frames=n_frames,
+                    frame_index=frame_index,
+                    backmapped_u=backmapped_u,
+                    save_CG=True,
+                )
+                backmapped_filenames.append(backmapped_filename)
+                backmapped_minimised_filenames.append(backmapped_minimised_filename)
+                if true_filename is not None:
+                    true_filenames.append(true_filename)
+                cg_filenames.append(cg_filename)
+            except Exception as e:
+                print(e)
+                print("Skipping.")
+        
+        return backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames
     
-    def backmap(
+    def backmap_impl(
         self,
         frame_index: int,
         verbose: bool = False,
         optimise_backbone: Optional[bool] = None,
         optimise_dihedrals: bool = False,
     ):
-        print(f"Backmapping structure {self.input_filename}")
+        # print(f"Backmapping structure {self.input_filename}")
         backmapping_dataset = self.get_backmapping_dataset(frame_index)
 
         print("Predicting distance vectors using HEqBM ENN & reconstructing atomistic structure...")
@@ -253,7 +248,7 @@ class HierarchicalBackmapping:
                 print(f"RMSD All: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], ignore_nan=True):4.3f} Angstrom")
                 no_bb_fltr = np.array([an not in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
                 print(f"RMSD on Side-Chains: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=no_bb_fltr, ignore_nan=True):4.3f} Angstrom")
-                bb_fltr = np.array([an in ["CA", "C", "N"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
+                bb_fltr = np.array([an in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
                 print(f"RMSD on Backbone: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=bb_fltr, ignore_nan=True):4.3f} Angstrom")
             except:
                 pass
@@ -328,18 +323,24 @@ class HierarchicalBackmapping:
         os.makedirs(output_folder, exist_ok=True)
 
         # Write pdb file of CG structure
+        cg_filename = None
         if save_CG:
-            cg_sel = self.cg_u.select_atoms('all')
-            with mda.Writer(os.path.join(output_folder, f"CG_{frame_index}.pdb"), n_atoms=cg_sel.atoms.n_atoms) as w:
+            cg_u = build_CG(backmapping_dataset, n_frames, self.mapping.selection.dimensions)
+            cg_u.trajectory[frame_index]
+            cg_sel = cg_u.select_atoms('all')
+            cg_sel.positions = np.nan_to_num(backmapping_dataset[DataDict.BEAD_POSITION])
+            cg_filename = os.path.join(output_folder, f"CG_{frame_index}.pdb")
+            with mda.Writer(cg_filename, n_atoms=cg_sel.atoms.n_atoms) as w:
                 w.write(cg_sel.atoms)
         
         if backmapped_u is None:
-            backmapped_u = build_universe(backmapping_dataset, n_frames, self.input_u.dimensions)
+            backmapped_u = build_universe(backmapping_dataset, n_frames, self.mapping.selection.dimensions)
         backmapped_u.trajectory[frame_index]
         positions_pred = backmapping_dataset[DataDict.ATOM_POSITION_PRED][0]
         
         # Write pdb of true atomistic structure (if present)
-        if DataDict.ATOM_POSITION in backmapping_dataset:
+        true_filename = None
+        if DataDict.ATOM_POSITION in backmapping_dataset and not np.all(backmapping_dataset[DataDict.ATOM_POSITION] == 0.):
             true_sel = backmapped_u.select_atoms('all')
             true_positions = backmapping_dataset[DataDict.ATOM_POSITION][0]
             true_sel.positions = true_positions[~np.any(np.isnan(positions_pred), axis=-1)]
@@ -350,34 +351,40 @@ class HierarchicalBackmapping:
         # Write pdb of backmapped structure
         backmapped_sel = backmapped_u.select_atoms('all')
         backmapped_sel.positions = positions_pred[~np.any(np.isnan(positions_pred), axis=-1)]
-        backmapped_filename = os.path.join(output_folder, f"backmapped_{frame_index}.pdb") 
+        backmapped_filename = os.path.join(output_folder, f"backmapped_{frame_index}.pdb")
         with mda.Writer(backmapped_filename, n_atoms=backmapped_u.atoms.n_atoms) as w:
             w.write(backmapped_sel.atoms)
         
         # Write pdb of minimised structure
         topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
         backmapped_minimised_filename = os.path.join(output_folder, f"backmapped_min_{frame_index}.pdb")
-        minimise_impl(
-            topology,
-            positions,
-            backmapped_minimised_filename,
-            restrain_atoms=['CA'],
-            tolerance=200.,
-        )
+        
+        try:
+            minimise_impl(
+                topology,
+                positions,
+                backmapped_minimised_filename,
+                restrain_atoms=[],
+                tolerance=200.,
+            )
+        except Exception as e:
+            pass
 
         print(f"Finished. Time: {time.time() - t}")
 
-        return backmapped_u
+        return backmapped_u, backmapped_filename, backmapped_minimised_filename, true_filename, cg_filename
 
 
 def build_CG(
     backmapping_dataset: dict,
+    n_frames: int,
+    box_dimensions,
 ) -> mda.Universe:
     CG_u = mda.Universe.empty(
         n_atoms =       backmapping_dataset[DataDict.NUM_BEADS],
         n_residues =    backmapping_dataset[DataDict.NUM_RESIDUES],
         n_segments =    len(np.unique(backmapping_dataset[DataDict.BEAD_SEGIDS])),
-        atom_resindex = backmapping_dataset[DataDict.BEAD_RESIDCS],
+        atom_resindex = close_gaps(backmapping_dataset[DataDict.BEAD_RESIDCS]),
         trajectory =    True, # necessary for adding coordinates
     )
     CG_u.add_TopologyAttr('name',     backmapping_dataset[DataDict.BEAD_NAMES])
@@ -385,11 +392,24 @@ def build_CG(
     CG_u.add_TopologyAttr('resname',  backmapping_dataset[DataDict.RESNAMES])
     CG_u.add_TopologyAttr('resid',    backmapping_dataset[DataDict.RESNUMBERS])
     CG_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.BEAD_SEGIDS])
-    CG_u.load_new(np.nan_to_num(backmapping_dataset[DataDict.BEAD_POSITION]), order='fac')
-    CG_u.dimensions = backmapping_dataset.get(DataDict.CELL, None)
+    
+    coordinates = np.empty((
+        n_frames,  # number of frames
+        backmapping_dataset[DataDict.NUM_BEADS],
+        3,
+    ))
+    CG_u.load_new(coordinates, order='fac')
+    CG_u.dimensions = box_dimensions
 
     return CG_u
 
+def close_gaps(arr: np.ndarray):
+    u = np.unique(arr)
+    w = np.arange(0, len(u))
+    for u_elem, w_elem in zip(u, w):
+        arr[arr == u_elem] = w_elem
+    return arr
+    
 def build_universe(
     backmapping_dataset,
     n_frames,
@@ -402,7 +422,7 @@ def build_universe(
         n_atoms =       num_atoms,
         n_residues =    backmapping_dataset[DataDict.NUM_RESIDUES],
         n_segments =    len(np.unique(backmapping_dataset[DataDict.ATOM_SEGIDS])),
-        atom_resindex = backmapping_dataset[DataDict.ATOM_RESIDCS][nan_filter],
+        atom_resindex = close_gaps(backmapping_dataset[DataDict.ATOM_RESIDCS][nan_filter]),
         trajectory    = True # necessary for adding coordinates
     )
     coordinates = np.empty((
@@ -418,7 +438,6 @@ def build_universe(
     backmapped_u.add_TopologyAttr('resname',  backmapping_dataset[DataDict.RESNAMES])
     backmapped_u.add_TopologyAttr('resid',    backmapping_dataset[DataDict.RESNUMBERS])
     backmapped_u.add_TopologyAttr('chainIDs', backmapping_dataset[DataDict.ATOM_SEGIDS][nan_filter])
-    backmapped_u.dimensions = backmapping_dataset.get(DataDict.CELL, None)
 
     return backmapped_u
 
@@ -446,13 +465,37 @@ def get_edge_index(positions: torch.Tensor, r_max: float):
     return torch.argwhere(dist_matrix <= r_max).T.long()
 
 def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: float, device: str = 'cpu'):
-    
-    batch_max_atoms = 3000
-
-    bead_pos = dataset[DataDict.BEAD_POSITION][0]
+    # dataset[DataDict.BEAD_POSITION][0] = np.array([
+    #     [60.050,  73.850,  73.860],
+    #     [63.190,  62.540,  79.180],
+    #     [60.740,  65.100,  75.590],
+    #     [61.320,  69.730,  74.660],
+    #     [61.050,  67.890,  74.850],
+    #     [63.520,  69.090,  74.640],
+    #     [60.780,  71.160,  74.550],
+    #     [62.560,  63.600,  77.290],
+    #     [61.340,  62.820,  78.150],
+    #     [59.240,  72.920,  74.470],
+    #     [58.970,  74.680,  74.200],
+    # ])
+    # dataset[DataDict.BEAD_POSITION][0] = np.array([
+    #     [45.685,  43.869,  76.139],
+    #     [54.272,  41.722,  87.052],
+    #     [51.903,  43.489,  82.418],
+    #     [48.586,  43.619,  79.263],
+    #     [50.301,  44.186,  80.202],
+    #     [48.084,  42.984,  81.357],
+    #     [47.770,  43.982,  78.120],
+    #     [52.530,  41.742,  85.300],
+    #     [54.612,  42.440,  84.838],
+    #     [47.114,  44.689,  75.815],
+    #     [45.922,  44.464,  74.600],
+    # ]) + np.random.randn(*dataset[DataDict.BEAD_POSITION][0].shape) * 0.4
+    bead_pos = dataset[DataDict.BEAD_POSITION][0] + np.random.randn(*dataset[DataDict.BEAD_POSITION][0].shape) * 0.2
     bead_types = dataset[DataDict.BEAD_TYPES]
     bead_residcs = torch.from_numpy(dataset[DataDict.BEAD_RESIDCS]).long()
     bead_pos = torch.from_numpy(bead_pos).float()
+
     bead_types = torch.from_numpy(bead_types).long().reshape(-1, 1)
     edge_index = get_edge_index(positions=bead_pos, r_max=r_max)
     batch = torch.zeros(len(bead_pos), device=device, dtype=torch.long)
@@ -463,9 +506,8 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
     data = {
         AtomicDataDict.POSITIONS_KEY: bead_pos,
         f"{AtomicDataDict.POSITIONS_KEY}_slices": torch.tensor([0, len(bead_pos)]),
-        AtomicDataDict.ATOM_TYPE_KEY: bead_types,
+        AtomicDataDict.NODE_TYPE_KEY: bead_types,
         "edge_class": bead_residcs,
-        AtomicDataDict.ORIG_EDGE_INDEX_KEY: edge_index,
         AtomicDataDict.EDGE_INDEX_KEY: edge_index,
         AtomicDataDict.BATCH_KEY: batch,
         DataDict.BEAD2ATOM_RECONSTRUCTED_IDCS: bead2atom_idcs,
@@ -481,143 +523,19 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
     for v in data.values():
         v.to(device)
 
-    already_computed_nodes = None
-    chunk = already_computed_nodes is not None
+    out = evaluate(
+        model=model,
+        batch=data,
+        node_out_keys=[AtomicDataDict.NODE_OUTPUT_KEY],
+        extra_out_keys=[ATOM_POSITIONS],
+    )
 
-    while True:
-        batch_ = copy.deepcopy(data)
-        batch_[AtomicDataDict.ORIG_BATCH_KEY] = batch_[AtomicDataDict.BATCH_KEY].clone()
+    dataset.update({
+        DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED: out[AtomicDataDict.NODE_OUTPUT_KEY].cpu().numpy(),
+        DataDict.ATOM_POSITION_PRED: np.expand_dims(out[ATOM_POSITIONS].cpu().numpy(), axis=0),
+    })
 
-        # Limit maximum batch size to avoid CUDA Out of Memory
-        x = batch_[AtomicDataDict.EDGE_INDEX_KEY]
-        x_ulen = len(x[0].unique())
-
-        y = x.clone()
-        
-        if already_computed_nodes is not None:
-            y = y[:, ~torch.isin(y[0], already_computed_nodes)]
-        node_center_idcs = y[0].unique()
-        if len(node_center_idcs) == 0:
-            return
-
-        offset = 0
-        while len(y.unique()) > batch_max_atoms:
-            chunk = True
-            offset += 1
-            
-            def get_node_center_idcs(y: torch.Tensor, batch_max_atoms: int, offset: int = 1):
-                unique_set = set()
-                
-                for i, num in enumerate(y[1]):
-                    unique_set.add(num.item())
-
-                    if len(unique_set) >= batch_max_atoms:
-                        return torch.unique(y[0, :i+1])[:-offset]
-                return torch.unique(y[0])
-
-            def get_y_edge_filter(y: torch.Tensor, offset: int = 1):
-                node_center_idcs = get_node_center_idcs(y, batch_max_atoms, offset)
-                edge_filter = torch.isin(y[0], node_center_idcs)
-                return edge_filter
-            
-            y_edge_filter = get_y_edge_filter(y, offset)
-            y = y[:, y_edge_filter]
-            
-            #########################################################################################################
-        
-
-        if chunk:
-            batch_[AtomicDataDict.EDGE_INDEX_KEY] = y
-            x_edge_filter = torch.isin(x[0], y[0].unique())
-            if AtomicDataDict.EDGE_CELL_SHIFT_KEY in batch_:
-                batch_[AtomicDataDict.EDGE_CELL_SHIFT_KEY] = batch_[AtomicDataDict.EDGE_CELL_SHIFT_KEY][x_edge_filter]
-            batch_[AtomicDataDict.BATCH_KEY] = batch_.get(AtomicDataDict.ORIG_BATCH_KEY, batch_[AtomicDataDict.BATCH_KEY])[y.unique()]
-            
-        del x
-        
-        # for slices_key, slices in data.__slices__.items():
-        #     batch_[f"{slices_key}_slices"] = torch.tensor(slices, dtype=int)
-        batch_["ptr"] = torch.nn.functional.pad(torch.bincount(batch_.get(AtomicDataDict.BATCH_KEY)).flip(dims=[0]), (0, 1), mode='constant').flip(dims=[0])
-        
-        # Remove all atoms that do not appear in edges and update edge indices
-        edge_index = batch_[AtomicDataDict.EDGE_INDEX_KEY]
-
-        edge_index_unique = edge_index.unique()
-
-        ignore_chunk_keys = ["atom_pos"]
-        
-        for key in batch_.keys():
-            if key in [
-                AtomicDataDict.BATCH_KEY,
-                AtomicDataDict.ORIG_BATCH_KEY,
-                AtomicDataDict.EDGE_INDEX_KEY,
-                AtomicDataDict.EDGE_CELL_SHIFT_KEY
-            ] + ignore_chunk_keys:
-                continue
-            dim = np.argwhere(np.array(batch_[key].size()) == len(batch_[AtomicDataDict.ORIG_BATCH_KEY])).flatten()
-            if len(dim) == 1:
-                if dim[0] == 0:
-                    batch_[key] = batch_[key][edge_index_unique]
-                elif dim[0] == 1:
-                    batch_[key] = batch_[key][:, edge_index_unique]
-                elif dim[0] == 2:
-                    batch_[key] = batch_[key][:, :, edge_index_unique]
-                else:
-                    raise Exception('Dimension not implemented')
-
-        last_idx = -1
-        batch_[AtomicDataDict.ORIG_EDGE_INDEX_KEY] = edge_index
-        updated_edge_index = edge_index.clone()
-        for idx in edge_index_unique:
-            if idx > last_idx + 1:
-                updated_edge_index[edge_index >= idx] -= idx - last_idx - 1
-            last_idx = idx
-        batch_[AtomicDataDict.EDGE_INDEX_KEY] = updated_edge_index
-
-        node_index_unique = edge_index[0].unique()
-        del edge_index
-        del edge_index_unique
-
-        for k, v in batch_.items():
-            batch_[k] = v.to(device)
-
-        with torch.no_grad():
-            out = model(batch_)
-            predicted_dih = out.get(INVARIANT_ATOM_FEATURES).cpu().numpy()
-            predicted_b2a_rel_vec = out.get(EQUIVARIANT_ATOM_FEATURES).cpu().numpy()
-            reconstructed_atom_pos = out.get(ATOM_POSITIONS, None)
-            if reconstructed_atom_pos is not None:
-                reconstructed_atom_pos = reconstructed_atom_pos.cpu().numpy()
-
-        if already_computed_nodes is None:
-            dataset[DataDict.BB_PHIPSI_PRED] = np.zeros((1, lvl_idcs_mask.shape[1], predicted_dih.shape[1]), dtype=float)
-            dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED] = np.zeros((1, lvl_idcs_mask.shape[1], lvl_idcs_mask.shape[2], 3), dtype=float)
-            if reconstructed_atom_pos is not None:
-                dataset[DataDict.ATOM_POSITION_PRED] = reconstructed_atom_pos[None, ...]
-        
-        original_nodes = out[AtomicDataDict.ORIG_EDGE_INDEX_KEY][0].unique().cpu().numpy()
-        nodes = out[AtomicDataDict.EDGE_INDEX_KEY][0].unique().cpu().numpy()
-        
-        dataset[DataDict.BB_PHIPSI_PRED][:, original_nodes] = predicted_dih[None, nodes]
-        dataset[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED][:, original_nodes] = predicted_b2a_rel_vec[None, nodes]
-        if reconstructed_atom_pos is not None:
-            fltr = np.argwhere(~np.isnan(reconstructed_atom_pos[:, 0])).flatten()
-            dataset[DataDict.ATOM_POSITION_PRED][:, fltr] = reconstructed_atom_pos[None, fltr]
-        
-        del out
-
-        if already_computed_nodes is None:
-            if len(node_index_unique) < x_ulen:
-                already_computed_nodes = node_index_unique
-        elif len(already_computed_nodes) + len(node_index_unique) == x_ulen:
-            already_computed_nodes = None
-        else:
-            assert len(already_computed_nodes) + len(node_index_unique) < x_ulen
-            already_computed_nodes = torch.cat([already_computed_nodes, node_index_unique], dim=0)
-        
-        del batch_
-        if already_computed_nodes is None:
-            return dataset
+    return dataset
 
 def build_minimiser_data(dataset: Dict):
 

@@ -64,8 +64,8 @@ class HierarchicalMapper(Mapper):
         }.items() if v is not None})
         return dataset
 
-    def __init__(self, config: Dict) -> None:
-        super().__init__(config=config)
+    def __init__(self, args_dict) -> None:
+        super().__init__(args_dict=args_dict)
 
     def compute_bead2atom_feats(self):
         self._bead2atom_idcs = -np.ones((self.num_beads, self.bead_all_size), dtype=int)
@@ -74,8 +74,8 @@ class HierarchicalMapper(Mapper):
         self._bead2atom_reconstructed_idcs = -np.ones((self.num_beads, self.bead_reconstructed_size), dtype=int)
         self._bead2atom_reconstructed_weights = np.zeros((self.num_beads, self.bead_reconstructed_size), dtype=np.float32)
 
-        self._level_idcs_mask = np.zeros((self.bead_reconstructed_size + 1, self.num_beads, self.bead_reconstructed_size), dtype=bool)
-        self._level_idcs_anchor_mask = -np.ones((self.bead_reconstructed_size + 1, self.num_beads, self.bead_reconstructed_size), dtype=int)
+        self._level_idcs_mask = np.zeros((self.num_beads, self.bead_reconstructed_size + 1, self.bead_reconstructed_size), dtype=bool)
+        self._level_idcs_anchor_mask = -np.ones((self.num_beads, self.bead_reconstructed_size + 1, self.bead_reconstructed_size), dtype=int)
 
         for i, bead in enumerate(self._ordered_beads):
             self._bead2atom_idcs[i, :bead.n_all_atoms] = bead._all_atom_idcs
@@ -100,10 +100,10 @@ class HierarchicalMapper(Mapper):
                 bead_local_filter = np.argwhere(bead._all_hierarchy_levels[mask] == level)
                 if len(bead_local_filter) > 0:
                     bead_local_filter = bead_local_filter.flatten()
-                    self._level_idcs_mask[level, i, bead_local_filter] = True
+                    self._level_idcs_mask[i, level, bead_local_filter] = True
                     filtered_anchor_idcs = anchor_idcs[bead_local_filter]
                     filtered_anchor_idcs[filtered_anchor_idcs == -1] = bead_local_filter[filtered_anchor_idcs == -1]
-                    self._level_idcs_anchor_mask[level, i, bead_local_filter] = bead._reconstructed_atom_idcs[filtered_anchor_idcs]
+                    self._level_idcs_anchor_mask[i, level, bead_local_filter] = bead._reconstructed_atom_idcs[filtered_anchor_idcs]
 
     def initialize_extra_pos_impl(self):
         self.bead2atom_relative_vectors_list = []
@@ -111,7 +111,7 @@ class HierarchicalMapper(Mapper):
     def update_extra_pos_impl(self, pos):
         frame_bead2atom_relative_vectors = np.zeros((self.num_beads, self.bead_reconstructed_size, 3), dtype=float)
         reconstructed_atom_pos = pos[self.bead2atom_reconstructed_idcs.data[~self.bead2atom_reconstructed_idcs.mask]]
-        anchor_pos = pos[self._level_idcs_anchor_mask.max(axis=0)[self._level_idcs_mask.max(axis=0)]]
+        anchor_pos = pos[self._level_idcs_anchor_mask.max(axis=1)[self._level_idcs_mask.max(axis=1)]]
         frame_bead2atom_relative_vectors[~self.bead2atom_reconstructed_idcs_mask] = reconstructed_atom_pos - anchor_pos
         self.bead2atom_relative_vectors_list.append(frame_bead2atom_relative_vectors)
 
@@ -130,6 +130,22 @@ class HierarchicalMapper(Mapper):
         z[np.tril_indices(len(z), k=-1)] = False
         self._bond_idcs = np.stack(np.nonzero(z)).T
         self._bond_idcs = self._bond_idcs[np.all(np.isin(self._bond_idcs, atoms_to_reconstruct_idcs), axis=1)]
+        if len(self._bond_idcs) == 0:
+            bond_idcs = []
+            last_bb_atom_idx = []
+            last_bb_atom_name = []
+            for idx, an in enumerate(self._atom_names):
+                if an in ['N', 'CA', 'C', 'O']:
+                    if len(last_bb_atom_idx)>0:
+                        if an != 'N':
+                            bond_idcs.append([last_bb_atom_idx[-1], idx])
+                        elif len(last_bb_atom_idx)>1 and  last_bb_atom_name[-2] == 'C':
+                            bond_idcs.append([last_bb_atom_idx[-2], idx])
+                    last_bb_atom_idx.append(idx)
+                    last_bb_atom_name.append(an)
+            if len(bond_idcs) > 0:
+                self._bond_idcs = np.stack(bond_idcs)
+
         
         # Angles
         df1A = pd.DataFrame(self._bond_idcs, columns=['a1', 'a2'])

@@ -1,64 +1,83 @@
 import torch
-from nequip.data import AtomicDataDict
-from nequip.nn import GraphModuleMixin
 from torch_runstats.scatter import scatter
-from heqbm.backmapping.allegro._keys import (
-    EQUIVARIANT_ATOM_FEATURES,
-    ATOM_POSITIONS,
-)
+from heqbm.backmapping.allegro._keys import ATOM_POSITIONS
+from geqtrain.nn import GraphModuleMixin
+from geqtrain.data import AtomicDataDict
+from geqtrain.nn.mace.irreps_tools import reshape_irreps
 from e3nn.o3 import Irreps
 from e3nn.util.jit import compile_mode
 
 @compile_mode("script")
-class HierarchicalReconstrucitonModule(GraphModuleMixin, torch.nn.Module):
+class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
 
     def __init__(
         self,
         func: GraphModuleMixin,
-        in_field: str = EQUIVARIANT_ATOM_FEATURES,
+        num_types: int,
+        in_field: str = AtomicDataDict.NODE_OUTPUT_KEY,
         out_field: str = ATOM_POSITIONS,
         out_field_irreps: Irreps = Irreps("1x1o"),
+        normalize_b2a_rel_vec: bool = True,
     ):
         super().__init__()
         self.func = func
         self.in_field = in_field
         self.out_field = out_field
+        self.normalize_b2a_rel_vec = normalize_b2a_rel_vec
 
         irreps_out = func.irreps_out
         irreps_out.update({
             self.out_field: out_field_irreps,
         })
 
-        # check and init irreps
+        irreps_in = func.irreps_in
+
+        hierarchy_irreps = Irreps(f"{func.irreps_out[in_field].num_irreps}x0e")
+        irreps_in.update({
+            "atom_pos": Irreps("1x1o"),
+            "bead2atom_reconstructed_idcs": hierarchy_irreps,
+            "bead2atom_reconstructed_weights": hierarchy_irreps,
+            "lvl_idcs_mask": hierarchy_irreps,
+            "lvl_idcs_anchor_mask": hierarchy_irreps,
+        })
+
         self._init_irreps(
-            irreps_in=func.irreps_in,
-            my_irreps_in={in_field: func.irreps_out[in_field]},
+            irreps_in=irreps_in,
+            my_irreps_in={
+                in_field: func.irreps_out[in_field],
+                "atom_pos": Irreps("1x1o"),
+            },
             irreps_out=irreps_out,
         )
+
+        self.reshape = reshape_irreps(func.irreps_out[in_field])
+
+        if self.normalize_b2a_rel_vec:
+            self.atom_type2bond_lengths = torch.nn.Parameter(torch.ones((num_types, self.irreps_out[in_field].num_irreps, 1), dtype=torch.float32))
 
     def forward(self, data: AtomicDataDict.Type) -> AtomicDataDict.Type:
         data = self.func(data)
 
-        bead2atom_relative_vectors = data[self.in_field]
+        # bead2atom_relative_vectors = data[self.in_field]
+        bead2atom_relative_vectors = self.reshape(data[self.in_field])
         bead_pos = data[AtomicDataDict.POSITIONS_KEY]
-        atom_pos_slices = data["atom_pos_slices"]
-        idcs_mask = data["bead2atom_idcs"]
-        idcs_mask_slices = data["bead2atom_idcs_slices"]
-        weights = data["bead2atom_weights"]
-        weights_slices = data["bead2atom_weights_slices"]
-        level_idcs_mask = data["lvl_idcs_mask"]
-        level_idcs_mask_slices = data["lvl_idcs_mask_slices"]
-        level_idcs_anchor_mask = data["lvl_idcs_anchor_mask"]
-
-        # orig_center_atoms = torch.unique(data[AtomicDataDict.ORIG_EDGE_INDEX_KEY][0])
+        atom_pos_slices        = data.get("atom_pos_slices", torch.tensor([0, data.get("bead2atom_reconstructed_idcs").max()+1], dtype=int, device=bead_pos.device))
+        idcs_mask              = data.get("bead2atom_reconstructed_idcs")
+        idcs_mask_slices       = data.get("bead2atom_reconstructed_idcs_slices", torch.tensor([0, len(bead_pos)], dtype=int, device=bead_pos.device))
+        weights                = data.get("bead2atom_reconstructed_weights")
+        level_idcs_mask        = data.get("lvl_idcs_mask")
+        level_idcs_anchor_mask = data.get("lvl_idcs_anchor_mask")
         center_atoms = torch.unique(data[AtomicDataDict.EDGE_INDEX_KEY][0])
 
-        for (b2a_idcs_from, b2a_idcs_to), (idcs_mask_from, idcs_mask_to), atom_pos_from in zip(
+        if self.normalize_b2a_rel_vec:
+            norm = torch.norm(bead2atom_relative_vectors, dim=-1, keepdim=True)
+            bead2atom_relative_vectors = bead2atom_relative_vectors / (norm + 1.e-12)
+            bead2atom_relative_vectors = bead2atom_relative_vectors * self.atom_type2bond_lengths[data.get(AtomicDataDict.NODE_TYPE_KEY).squeeze(-1)]
+
+        for (b2a_idcs_from, b2a_idcs_to), atom_pos_from in zip(
             zip(idcs_mask_slices[:-1], idcs_mask_slices[1:]),
-            zip(level_idcs_mask_slices[:-1], level_idcs_mask_slices[1:]),
             atom_pos_slices[:-1],
         ):
-            # batch_orig_center_atoms = orig_center_atoms[(orig_center_atoms>=b2a_idcs_from) & (orig_center_atoms<b2a_idcs_to)]
             batch_center_atoms = center_atoms[(center_atoms>=b2a_idcs_from) & (center_atoms<b2a_idcs_to)]
 
             b2a_idcs = idcs_mask[batch_center_atoms]
@@ -70,44 +89,29 @@ class HierarchicalReconstrucitonModule(GraphModuleMixin, torch.nn.Module):
             b2a_idcs_col += atom_pos_from
             reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] = bead_pos[center_atoms][b2a_idcs_row]
 
-            for level, (level_idcs_mask_elem, level_anchor_idcs_mask_elem) in enumerate(
-                    zip(
-                        level_idcs_mask[idcs_mask_from:idcs_mask_to, batch_center_atoms],
-                        level_idcs_anchor_mask[idcs_mask_from:idcs_mask_to, batch_center_atoms]
-                        )
-                ):
-                    if level == 0:
-                        continue
-                    mask_row, mask_col = torch.where(level_idcs_mask_elem)
-                    mask_col += atom_pos_from
+            batch_level_idcs_mask = level_idcs_mask[batch_center_atoms]
+            batch_level_idcs_anchor_mask = level_idcs_anchor_mask[batch_center_atoms]
+            for level in range(batch_level_idcs_mask.size(1)):
+                if level == 0:
+                    continue
+                level_idcs_mask_elem = batch_level_idcs_mask[:, level]
+                level_anchor_idcs_mask_elem = batch_level_idcs_anchor_mask[:, level]
+                mask_row, mask_col = torch.where(level_idcs_mask_elem)
+                if len(mask_row) > 0:
+                    # mask_col += atom_pos_from ?
                     updated_pos = reconstructed_atom_pos[mask_row, level_anchor_idcs_mask_elem[mask_row, mask_col]]
                     updated_pos = updated_pos + bead2atom_relative_vectors[center_atoms][mask_row, mask_col]
                     reconstructed_atom_pos[mask_row, b2a_idcs[mask_row, mask_col]] = updated_pos
             
             # Re-center predicted atoms' center of mass to the actual bead position
-            predicted_atoms_cm = scatter(
-                reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
-                b2a_idcs_row,
-                dim=0,
-            )
-            atom_shifts = predicted_atoms_cm - bead_pos[center_atoms]
-            reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] -= atom_shifts[b2a_idcs_row]
-            
-
-        #     for h, h_orig, b2a_idcs in zip(batch_center_atoms, batch_orig_center_atoms, idcs_mask[batch_orig_center_atoms]):
-        #         reconstructed_atom_pos = torch.empty(atom_pos_slices[-1], 3, dtype=torch.float32, device=bead2atom_relative_vectors.device)
-        #         reconstructed_atom_pos[:] = torch.nan
-        #         reconstructed_atom_pos[b2a_idcs[b2a_idcs>=0] + atom_pos_from] = bead_pos[h, None, ...]
-
-        #         for level, (level_idcs_mask_elem, level_anchor_idcs_mask_elem) in enumerate(
-        #             zip(level_idcs_mask[idcs_mask_from:idcs_mask_to, h_orig-b2a_idcs_from], level_idcs_anchor_mask[idcs_mask_from:idcs_mask_to, h_orig-b2a_idcs_from])
-        #         ):
-        #             updated_pos = reconstructed_atom_pos[level_anchor_idcs_mask_elem[level_idcs_mask_elem] + atom_pos_from]
-        #             if level > 0:
-        #                 updated_pos = updated_pos + bead2atom_relative_vectors[h, level_idcs_mask_elem]
-        #                 reconstructed_atom_pos[idcs_mask[h_orig, level_idcs_mask_elem] + atom_pos_from] = updated_pos
-        #         per_bead_reconstructed_atom_pos.append(reconstructed_atom_pos)
-        # per_bead_reconstructed_atom_pos = torch.stack(per_bead_reconstructed_atom_pos, dim=0)
+            # !!!!!!!!!!!!!!!!!!!!!!!!!!
+            # predicted_atoms_cm = scatter(
+            #     reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
+            #     b2a_idcs_row,
+            #     dim=0,
+            # )
+            # atom_shifts = predicted_atoms_cm - bead_pos[center_atoms]
+            # reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] -= atom_shifts[b2a_idcs_row]
         
         data[self.out_field] = torch.nanmean(reconstructed_atom_pos, dim=0)
         return data

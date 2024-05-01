@@ -1,6 +1,6 @@
 import torch
 
-from nequip.nn.radial_basis import BesselBasis
+from geqtrain.nn.radial_basis import BesselBasis
 
 
 class NormalizedBasis(torch.nn.Module):

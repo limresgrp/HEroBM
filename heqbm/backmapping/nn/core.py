@@ -9,8 +9,8 @@ from e3nn import o3
 from e3nn.util.jit import compile_mode
 
 from nequip.data import AtomicDataDict
-from nequip.nn import GraphModuleMixin
-from nequip.utils.tp_utils import tp_path_exists
+from geqtrain.nn import GraphModuleMixin
+from geqtrain.utils.tp_utils import tp_path_exists
 
 from heqbm.backmapping.allegro.nn._fc import ScalarMLPFunction, ExponentialScalarMLPFunction
 from heqbm.backmapping.allegro import _keys
@@ -33,7 +33,7 @@ def pick_mpl_function(func):
 
 
 @compile_mode("script")
-class HierarchicalBackmappingV2Module(GraphModuleMixin, torch.nn.Module):
+class CoreModule(GraphModuleMixin, torch.nn.Module):
     # saved params
     num_layers: int
     field: str
@@ -63,7 +63,6 @@ class HierarchicalBackmappingV2Module(GraphModuleMixin, torch.nn.Module):
         cutoff_type: str = "polynomial",
         # general hyperparameters:
         field: str = AtomicDataDict.EDGE_ATTRS_KEY,
-        readout_features: bool = False,
         inv_out_field: Optional[str] = _keys.INVARIANT_EDGE_FEATURES,
         eq_out_field: Optional[str] = _keys.EQUIVARIANT_EDGE_FEATURES,
         eq_out_length_field: Optional[str] = _keys.EQUIVARIANT_EDGE_LENGTH_FEATURES,
@@ -123,7 +122,6 @@ class HierarchicalBackmappingV2Module(GraphModuleMixin, torch.nn.Module):
         self.avg_num_neighbors = avg_num_neighbors
         self.linear_after_env_embed = linear_after_env_embed
         self.num_types = num_types
-        self.readout_features = readout_features
 
         env_embed = pick_mpl_function(env_embed)
         two_body_latent = pick_mpl_function(two_body_latent)
@@ -383,32 +381,31 @@ class HierarchicalBackmappingV2Module(GraphModuleMixin, torch.nn.Module):
         
         # ------------------- #
 
-        if self.readout_features:
-            self.final_readout = latent(
-                mlp_input_dimension=self.latents[-1].out_features
-                + env_embed_multiplicity * self._n_scalar_outs[layer_idx],
-                mlp_output_dimension=self.inv_out_irreps.dim,
-            )
+        self.final_readout = latent(
+            mlp_input_dimension=self.latents[-1].out_features
+            + env_embed_multiplicity * self._n_scalar_outs[layer_idx],
+            mlp_output_dimension=self.inv_out_irreps.dim,
+        )
 
-            self.final_linear = Linear(
-                        full_out_irreps,
-                        self.eq_out_irreps,
-                        shared_weights=False,
-                        internal_weights=False,
-                        pad_to_alignment=pad_to_alignment,
-                    )
+        self.final_linear = Linear(
+                    full_out_irreps,
+                    self.eq_out_irreps,
+                    shared_weights=False,
+                    internal_weights=False,
+                    pad_to_alignment=pad_to_alignment,
+                )
 
-            self.final_latent = latent(
-                mlp_input_dimension=self.latents[-1].out_features
-                + env_embed_multiplicity * self._n_scalar_outs[layer_idx],
-                mlp_output_dimension=self.final_linear.weight_numel,
-            )
+        self.final_latent = latent(
+            mlp_input_dimension=self.latents[-1].out_features
+            + env_embed_multiplicity * self._n_scalar_outs[layer_idx],
+            mlp_output_dimension=self.final_linear.weight_numel,
+        )
 
-            self.final_readout_eq_length = latent(
-                mlp_input_dimension=self.latents[-1].out_features
-                + env_embed_multiplicity * self._n_scalar_outs[layer_idx],
-                mlp_output_dimension=self.eq_out_irreps.dim//3,
-            )
+        self.final_readout_eq_length = latent(
+            mlp_input_dimension=self.latents[-1].out_features
+            + env_embed_multiplicity * self._n_scalar_outs[layer_idx],
+            mlp_output_dimension=self.eq_out_irreps.dim//3,
+        )
 
         # ------------------- #
 
@@ -494,8 +491,8 @@ class HierarchicalBackmappingV2Module(GraphModuleMixin, torch.nn.Module):
         final_latent_irreps = o3.Irreps(f"{self.latents[-1].out_features + env_embed_multiplicity * self._n_scalar_outs[layer_idx]}x0e")
         self.irreps_out.update(
             {
-                self.inv_out_field: final_latent_irreps if not self.readout_features else self.inv_out_irreps,
-                self.eq_out_field: full_out_irreps if not self.readout_features else self.eq_out_irreps,
+                self.inv_out_field: self.inv_out_irreps,
+                self.eq_out_field: self.eq_out_irreps,
                 self.eq_out_length_field: o3.Irreps(f"{self.final_readout_eq_length.out_features}x0e"),
             }
         )
@@ -504,6 +501,7 @@ class HierarchicalBackmappingV2Module(GraphModuleMixin, torch.nn.Module):
 
         edge_center = data[AtomicDataDict.EDGE_INDEX_KEY][0]
         edge_neighbor = data[AtomicDataDict.EDGE_INDEX_KEY][1]
+        edge_length = data[AtomicDataDict.EDGE_LENGTH_KEY]
 
         edge_attr = data[self.field]
         # pad edge_attr
@@ -515,15 +513,16 @@ class HierarchicalBackmappingV2Module(GraphModuleMixin, torch.nn.Module):
                 ),
                 dim=-1,
             )
-
-        edge_length = data[AtomicDataDict.EDGE_LENGTH_KEY]
         num_edges: int = len(edge_attr)
+
         edge_invariants = data[self.edge_invariant_field]
         node_invariants = data[self.node_invariant_field]
+        
         # pre-declare variables as Tensors for TorchScript
         scalars = self._zero
         coefficient_old = scalars
         coefficient_new = scalars
+
         # Initialize state
         latents = torch.zeros(
             (num_edges, self._latent_dim),
@@ -717,14 +716,10 @@ class HierarchicalBackmappingV2Module(GraphModuleMixin, torch.nn.Module):
 
         # ------------------------- #
         
-        if self.readout_features:
-            data[self.inv_out_field] = self.final_readout(final_latent_input)
+        data[self.inv_out_field] = self.final_readout(final_latent_input)
 
-            weights = self.final_latent(final_latent_input)
-            data[self.eq_out_field] = self.final_linear(self.reshape_back_features(features), weights).squeeze(dim=-1)
-        else:
-            data[self.inv_out_field] = final_latent_input
-            data[self.eq_out_field] = self.reshape_back_features(features)
+        weights = self.final_latent(final_latent_input)
+        data[self.eq_out_field] = self.final_linear(self.reshape_back_features(features), weights).squeeze(dim=-1)
 
         # ------------------------- #
 

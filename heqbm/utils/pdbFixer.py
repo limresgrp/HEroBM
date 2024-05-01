@@ -27,7 +27,7 @@ def fixPDB(
     fixer.addMissingAtoms()
     if addHydrogens:
         try:
-            fixer.addMissingHydrogens(10.0, forcefield=forcefield)
+            fixer.addMissingHydrogens(7.0, forcefield=forcefield)
         except Exception as e:
             print("Could not add Hydrogens.", e)
     return fixer.topology, fixer.positions

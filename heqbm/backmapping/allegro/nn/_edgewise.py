@@ -5,7 +5,7 @@ import torch
 from torch_runstats.scatter import scatter
 
 from nequip.data import AtomicDataDict
-from nequip.nn import GraphModuleMixin
+from geqtrain.nn import GraphModuleMixin
 
 from .. import _keys
 
@@ -58,7 +58,7 @@ class EdgewiseEnergySum(GraphModuleMixin, torch.nn.Module):
         edge_neighbor = data[AtomicDataDict.EDGE_INDEX_KEY][1]
 
         edge_eng = data[self.field]
-        species = data[AtomicDataDict.ATOM_TYPE_KEY].squeeze(-1)
+        species = data.get(AtomicDataDict.ATOM_TYPE_KEY, data["node_types"]).squeeze(-1)
         center_species = species[edge_center]
         neighbor_species = species[edge_neighbor]
 

@@ -1,4 +1,4 @@
-from nequip.nn import GraphModuleMixin
+from geqtrain.nn import GraphModuleMixin
 from nequip.data import AtomicDataDict
 from heqbm.backmapping.nn import ConstrOutputRange
 

@@ -1,12 +1,12 @@
-from typing import List, Union, Optional
+from typing import List, Optional
 
 import torch
 
 from e3nn.o3 import Irreps
 from e3nn.util.jit import compile_mode
 
-from nequip.data import AtomicDataDict
-from nequip.nn import GraphModuleMixin
+from geqtrain.data import AtomicDataDict
+from geqtrain.nn import GraphModuleMixin
 
 @compile_mode("script")
 class RequireGradModule(GraphModuleMixin, torch.nn.Module):

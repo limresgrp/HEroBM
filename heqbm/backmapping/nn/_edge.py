@@ -4,9 +4,9 @@ from e3nn import o3
 from e3nn.util.jit import compile_mode
 
 from nequip.data import AtomicDataDict
-from nequip.nn import GraphModuleMixin
-from nequip.nn.radial_basis import BesselBasis
-from nequip.nn.cutoffs import PolynomialCutoff
+from geqtrain.nn import GraphModuleMixin
+from geqtrain.nn.radial_basis import BesselBasis
+from geqtrain.nn.cutoffs import PolynomialCutoff
 
 
 

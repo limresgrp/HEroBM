@@ -31,7 +31,7 @@ from heqbm.backmapping.allegro.nn import (
 
 from heqbm.backmapping.nn import (
     RadialBasisClassEdgeEncoding,
-    HierarchicalBackmappingV2Module,
+    CoreModule,
     HierarchicalBackmappingReadoutModule,
 )
 
@@ -88,7 +88,7 @@ def HierarchicalBackmappingV3(config, initialize: bool, dataset: Optional[Concat
         "spharm": SphericalHarmonicEdgeAttrs,
         # The core model:
         "core": (
-            HierarchicalBackmappingV2Module,
+            CoreModule,
             dict(
                 field=AtomicDataDict.EDGE_ATTRS_KEY,  # initial input is the edge SH
                 edge_invariant_field=AtomicDataDict.EDGE_EMBEDDING_KEY,

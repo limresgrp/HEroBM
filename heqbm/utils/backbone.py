@@ -25,7 +25,7 @@ class MinimizeEnergy(torch.nn.Module):
             data["bond_idcs"] = bond_idcs[actual_bonds_idcs]
             data["bond_eq_val"] = bond_eq_val[actual_bonds_idcs]
             data["bond_tolerance"] = bond_tolerance[actual_bonds_idcs]
-        bond_energy = 1000 * torch.mean(torch.max(squared_distance - (bond_tolerance)**2, torch.zeros_like(bond_val)))
+        bond_energy = 1000 * torch.sum(torch.max(squared_distance - (bond_tolerance)**2, torch.zeros_like(bond_val)))
         return bond_energy
 
     def evaluate_angle_energy(self, data, t: int = 0, pos: Optional[np.ndarray] = None):
@@ -38,7 +38,7 @@ class MinimizeEnergy(torch.nn.Module):
         if len(angle_idcs) == 0:
             return torch.tensor(0., device=pos.device, requires_grad=True)
         angle_val = get_angles(pos, angle_idcs)[0]
-        angle_energy = 150 * torch.mean(torch.max(torch.pow(angle_val - angle_eq_val, 2) - (angle_tolerance)**2, torch.zeros_like(angle_val)))
+        angle_energy = 150 * torch.sum(torch.max(torch.pow(angle_val - angle_eq_val, 2) - (angle_tolerance)**2, torch.zeros_like(angle_val)))
         return angle_energy
     
     def evaluate_torsion_energy(self, data, t: int = 0, pos: Optional[np.ndarray] = None):
@@ -48,6 +48,8 @@ class MinimizeEnergy(torch.nn.Module):
         tor_eq_val = data["omega_values"]
         tor_tolerance = data["omega_tolerance"]
 
+        if len(tor_idcs) == 0:
+            return torch.tensor(0., device=pos.device, requires_grad=True)
         tor_val = get_dihedrals(pos, tor_idcs)[0]
         torsion_error = bound_angle(tor_val - tor_eq_val)
         tolerance_bounded_error = torch.sign(torsion_error) * torch.max(torch.abs(torsion_error) - tor_tolerance, torch.zeros_like(tor_val))
@@ -75,6 +77,7 @@ class MinimizeEnergy(torch.nn.Module):
         self,
         data, t: int,
     ):
+        dtau = data["dtau"]
         pos = data["coords"]
         if len(pos) == 0:
             return data, {}
@@ -92,16 +95,18 @@ class MinimizeEnergy(torch.nn.Module):
             gradient = -gradient[0].detach()
             gradient = torch.nan_to_num(gradient, nan=0.)
             fnorm = gradient.norm(dim=-1)
-            gradient[fnorm > .1/data["dtau"]] *= .1/data["dtau"]/fnorm[fnorm > .1/data["dtau"]][..., None]
+            gradient[fnorm > .01/dtau] *= .01/dtau/fnorm[fnorm > .01/dtau][..., None]
             energy_evaluation["gradient"] = gradient
 
             pos.requires_grad_(False)
-            pos += gradient * data["dtau"]
+            mask = data["bb_atom_idcs"] != -1
+            weighted_gradient = torch.einsum('bij,i->bij', gradient[:, data["bb_atom_idcs"][mask]], 1. - data["bb_atom_weights"][mask])
+            pos[:, data["bb_atom_idcs"][mask]] += weighted_gradient * dtau
 
-            weighted_pos = torch.einsum('bijk,ij->bik', torch.nan_to_num(pos[:, data["bb_atom_idcs"]]), data["bb_atom_weights"])
-            recentering_vectors = (data["bb_bead_coords"] - weighted_pos)[..., None, :].repeat(1, 1, data["bb_atom_idcs"].shape[-1], 1)
-            recentering_vectors[:, data["bb_atom_idcs"] == -1] = 0.
-            pos[:, data["bb_atom_idcs"]] += recentering_vectors
+            # weighted_pos = torch.einsum('bijk,ij->bik', torch.nan_to_num(pos[:, data["bb_atom_idcs"]]), data["bb_atom_weights"])
+            # recentering_vectors = (data["bb_bead_coords"] - weighted_pos)[..., None, :].repeat(1, 1, data["bb_atom_idcs"].shape[-1], 1)
+            # recentering_vectors[:, data["bb_atom_idcs"] == -1] = 0.
+            # pos[:, data["bb_atom_idcs"]] += recentering_vectors
 
             data["coords"] = pos
         return data, energy_evaluation
@@ -125,13 +130,13 @@ class MinimizeEnergy(torch.nn.Module):
             data, energy_evaluation = self(data, t)
             if energy_evaluation is None:
                 return
-            if not t % 300:
+            if not t % 50:
                 if verbose:
                     print(f"Step {t}")
                     for k in ["bond_energy", "angle_energy", "torsion", "total_energy"]:
                         print(f"{k}: {energy_evaluation.get(k, torch.tensor(torch.nan)).item()}")
                 current_total_energy = energy_evaluation.get("total_energy")
-                if last_total_energy - current_total_energy < eps:
+                if current_total_energy == 0. or last_total_energy - current_total_energy < eps:
                     break
                 last_total_energy = current_total_energy
         
