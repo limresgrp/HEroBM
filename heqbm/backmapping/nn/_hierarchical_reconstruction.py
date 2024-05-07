@@ -56,7 +56,11 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
             self.atom_type2bond_lengths = torch.nn.Parameter(torch.ones((num_types, self.irreps_out[in_field].num_irreps, 1), dtype=torch.float32))
 
     def forward(self, data: AtomicDataDict.Type) -> AtomicDataDict.Type:
+        if AtomicDataDict.NOISE in data:
+            data[AtomicDataDict.POSITIONS_KEY] += data[AtomicDataDict.NOISE]
         data = self.func(data)
+        if AtomicDataDict.NOISE in data:
+            data[AtomicDataDict.POSITIONS_KEY] -= data[AtomicDataDict.NOISE]
 
         # bead2atom_relative_vectors = data[self.in_field]
         bead2atom_relative_vectors = self.reshape(data[self.in_field])

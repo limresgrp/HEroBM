@@ -1,18 +1,15 @@
 import argparse
 import json
+import logging
 import os
-import glob
 import torch
 import numpy as np
-import yaml
 
-from os.path import dirname, basename
-from typing import Dict
+from os.path import basename
 from pathlib import Path
 
 from heqbm.mapper import HierarchicalMapper
 from heqbm.utils import DataDict
-from heqbm.utils.parsing import parse_slice
 
 torch.set_default_dtype(torch.float32)
 
@@ -37,11 +34,26 @@ def to_npz(dataset):
         ]
     }
 
-def build_npz_dataset(args_dict, skip_if_existent: bool = False):
+def build_npz_dataset(args_dict, skip_if_existent: bool = True):
     mapping = HierarchicalMapper(args_dict=args_dict)
 
-    for m in mapping():
-        yield to_npz(m.dataset), m.config
+    for input_filename, input_trajname in mapping.iterate():
+        p = Path(input_filename)
+        output = args_dict.get('output', None)
+        if output is None:
+            output_filename = str(Path(p.parent, p.stem + '.npz'))
+        else:
+            o = Path(output)
+            if o.suffix == 'npz':
+                output_filename = output
+            else:
+                output_filename = str(Path(o.parent, o.stem, p.stem + '.npz'))
+        if skip_if_existent and os.path.isfile(output_filename):
+            continue
+        trajname_msg = f" and input trajectory {input_trajname}" if (input_trajname is not None and len(input_trajname) > 0) else ""
+        logging.info(f"Building dataset for input file {input_filename}{trajname_msg}.")
+        mapping.map(input_filename, input_trajname)
+        yield to_npz(mapping.dataset), output_filename
     
     config_update_text = f'''Update the training configuration file with the following snippet (excluding quotation marks):
     \n"\neq_out_irreps: {mapping.bead_reconstructed_size}x1o\n\ntype_names:\n'''
@@ -215,11 +227,9 @@ def parse_command_line(args=None):
 
     return parser.parse_args(args=args)
 
-
 def main(args=None):
     args_dict = parse_command_line(args)
-    build_dataset(args_dict)
-    
+    build_dataset(args_dict)    
 
 
 if __name__ == "__main__":

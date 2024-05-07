@@ -67,7 +67,7 @@ class HierarchicalMapper(Mapper):
     def __init__(self, args_dict) -> None:
         super().__init__(args_dict=args_dict)
 
-    def compute_bead2atom_feats(self):
+    def _compute_bead2atom_feats(self):
         self._bead2atom_idcs = -np.ones((self.num_beads, self.bead_all_size), dtype=int)
         self._bead2atom_weights = np.zeros((self.num_beads, self.bead_all_size), dtype=float)
 
@@ -105,32 +105,34 @@ class HierarchicalMapper(Mapper):
                     filtered_anchor_idcs[filtered_anchor_idcs == -1] = bead_local_filter[filtered_anchor_idcs == -1]
                     self._level_idcs_anchor_mask[i, level, bead_local_filter] = bead._reconstructed_atom_idcs[filtered_anchor_idcs]
 
-    def initialize_extra_pos_impl(self):
+    def _initialize_extra_pos_impl(self):
         self.bead2atom_relative_vectors_list = []
     
-    def update_extra_pos_impl(self, pos):
+    def _update_extra_pos_impl(self, pos):
         frame_bead2atom_relative_vectors = np.zeros((self.num_beads, self.bead_reconstructed_size, 3), dtype=float)
         reconstructed_atom_pos = pos[self.bead2atom_reconstructed_idcs.data[~self.bead2atom_reconstructed_idcs.mask]]
         anchor_pos = pos[self._level_idcs_anchor_mask.max(axis=1)[self._level_idcs_mask.max(axis=1)]]
         frame_bead2atom_relative_vectors[~self.bead2atom_reconstructed_idcs_mask] = reconstructed_atom_pos - anchor_pos
         self.bead2atom_relative_vectors_list.append(frame_bead2atom_relative_vectors)
 
-    def store_extra_pos_impl(self):
+    def _store_extra_pos_impl(self):
         self._bead2atom_relative_vectors = np.stack(self.bead2atom_relative_vectors_list, axis=0)
     
-    def compute_invariants(self):
+    def _compute_invariants(self):
         bond_min_length, bond_max_length = 1., 2. # Angstrom
         atoms_to_reconstruct_idcs = np.unique(self._bead2atom_reconstructed_idcs)
 
         # Bonds
+        self._bond_idcs = None
         x = self._atom_positions[0]
-        y = x - x[:, None]
-        y = np.linalg.norm(y, axis=-1)
-        z = (y > bond_min_length) * (y < bond_max_length)
-        z[np.tril_indices(len(z), k=-1)] = False
-        self._bond_idcs = np.stack(np.nonzero(z)).T
-        self._bond_idcs = self._bond_idcs[np.all(np.isin(self._bond_idcs, atoms_to_reconstruct_idcs), axis=1)]
-        if len(self._bond_idcs) == 0:
+        if np.any(x):
+            y = x - x[:, None]
+            y = np.linalg.norm(y, axis=-1)
+            z = (y > bond_min_length) * (y < bond_max_length)
+            z[np.tril_indices(len(z), k=-1)] = False
+            self._bond_idcs = np.stack(np.nonzero(z)).T
+            self._bond_idcs = self._bond_idcs[np.all(np.isin(self._bond_idcs, atoms_to_reconstruct_idcs), axis=1)]
+        if self._bond_idcs is None or len(self._bond_idcs) == 0:
             bond_idcs = []
             last_bb_atom_idx = []
             last_bb_atom_name = []
@@ -170,5 +172,5 @@ class HierarchicalMapper(Mapper):
         self._torsion_idcs = df3.values
         self._torsion_idcs = self._torsion_idcs[np.all(np.isin(self._torsion_idcs, atoms_to_reconstruct_idcs), axis=1)]
 
-    def compute_extra_map_impl(self):
-        self.compute_invariants()
+    def _compute_extra_map_impl(self):
+        self._compute_invariants()

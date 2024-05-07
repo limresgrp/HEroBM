@@ -1,4 +1,3 @@
-import glob
 import os
 import time
 import yaml
@@ -6,10 +5,7 @@ import torch
 
 import numpy as np
 import MDAnalysis as mda
-import copy
 
-from os.path import basename
-# from e3nn import o3
 from pathlib import Path
 from typing import Dict, List, Optional
 from MDAnalysis.analysis import align
@@ -17,15 +13,12 @@ from MDAnalysis.analysis import align
 from heqbm.mapper.hierarchical_mapper import HierarchicalMapper
 # from heqbm.backmapping.nn.quaternions import get_quaternions, qv_mult
 from heqbm.utils import DataDict
-from heqbm.utils.geometry import get_RMSD, get_angles, get_dihedrals, set_phi, set_psi
+from heqbm.utils.geometry import get_RMSD, set_phi, set_psi
 from heqbm.utils.backbone import MinimizeEnergy
 from heqbm.utils.pdbFixer import fixPDB
 from heqbm.utils.minimisation import minimise_impl
-from heqbm.utils.parsing import parse_slice
 
 from heqbm.backmapping.allegro._keys import (
-    INVARIANT_ATOM_FEATURES,
-    EQUIVARIANT_ATOM_FEATURES,
     ATOM_POSITIONS,
 )
 
@@ -224,6 +217,7 @@ class HierarchicalBackmapping:
             model=self.model,
             r_max=self.model_r_max,
             device=self.device,
+            batch_max_atoms=self.config.get("batch_max_atoms", 1000),
         )
         
         print(f"Finished. Time: {time.time() - t}")
@@ -399,9 +393,17 @@ def build_CG(
         3,
     ))
     CG_u.load_new(coordinates, order='fac')
-    CG_u.dimensions = box_dimensions
+    add_box(CG_u, box_dimensions)
 
     return CG_u
+
+def add_box(u: mda.Universe, box_dimensions):
+    if box_dimensions is None:
+        dim = np.array([100., 100., 100., 90, 90, 90])
+        transform = mda.transformations.boxdimensions.set_dimensions(dim)
+        u.trajectory.add_transformations(transform)
+    else:
+        u.dimensions = box_dimensions
 
 def close_gaps(arr: np.ndarray):
     u = np.unique(arr)
@@ -431,8 +433,8 @@ def build_universe(
         3,
     ))
     backmapped_u.load_new(coordinates, order='fac')
+    add_box(backmapped_u, box_dimensions)
 
-    backmapped_u.dimensions = box_dimensions
     backmapped_u.add_TopologyAttr('name',     backmapping_dataset[DataDict.ATOM_NAMES][nan_filter])
     backmapped_u.add_TopologyAttr('type',     backmapping_dataset[DataDict.ATOM_TYPES][nan_filter])
     backmapped_u.add_TopologyAttr('resname',  backmapping_dataset[DataDict.RESNAMES])
@@ -464,38 +466,18 @@ def get_edge_index(positions: torch.Tensor, r_max: float):
     dist_matrix = torch.norm(positions[:, None, ...] - positions[None, ...], dim=-1).fill_diagonal_(torch.inf)
     return torch.argwhere(dist_matrix <= r_max).T.long()
 
-def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: float, device: str = 'cpu'):
-    # dataset[DataDict.BEAD_POSITION][0] = np.array([
-    #     [60.050,  73.850,  73.860],
-    #     [63.190,  62.540,  79.180],
-    #     [60.740,  65.100,  75.590],
-    #     [61.320,  69.730,  74.660],
-    #     [61.050,  67.890,  74.850],
-    #     [63.520,  69.090,  74.640],
-    #     [60.780,  71.160,  74.550],
-    #     [62.560,  63.600,  77.290],
-    #     [61.340,  62.820,  78.150],
-    #     [59.240,  72.920,  74.470],
-    #     [58.970,  74.680,  74.200],
-    # ])
-    # dataset[DataDict.BEAD_POSITION][0] = np.array([
-    #     [45.685,  43.869,  76.139],
-    #     [54.272,  41.722,  87.052],
-    #     [51.903,  43.489,  82.418],
-    #     [48.586,  43.619,  79.263],
-    #     [50.301,  44.186,  80.202],
-    #     [48.084,  42.984,  81.357],
-    #     [47.770,  43.982,  78.120],
-    #     [52.530,  41.742,  85.300],
-    #     [54.612,  42.440,  84.838],
-    #     [47.114,  44.689,  75.815],
-    #     [45.922,  44.464,  74.600],
-    # ]) + np.random.randn(*dataset[DataDict.BEAD_POSITION][0].shape) * 0.4
-    bead_pos = dataset[DataDict.BEAD_POSITION][0] + np.random.randn(*dataset[DataDict.BEAD_POSITION][0].shape) * 0.2
+def run_backmapping_inference(
+    dataset: Dict,
+    model: torch.nn.Module,
+    r_max: float,
+    device: str = 'cpu',
+    batch_max_atoms: int = 1000
+):
+
+    bead_pos = dataset[DataDict.BEAD_POSITION][0]
     bead_types = dataset[DataDict.BEAD_TYPES]
     bead_residcs = torch.from_numpy(dataset[DataDict.BEAD_RESIDCS]).long()
     bead_pos = torch.from_numpy(bead_pos).float()
-
     bead_types = torch.from_numpy(bead_types).long().reshape(-1, 1)
     edge_index = get_edge_index(positions=bead_pos, r_max=r_max)
     batch = torch.zeros(len(bead_pos), device=device, dtype=torch.long)
@@ -528,6 +510,7 @@ def run_backmapping_inference(dataset: Dict, model: torch.nn.Module, r_max: floa
         batch=data,
         node_out_keys=[AtomicDataDict.NODE_OUTPUT_KEY],
         extra_out_keys=[ATOM_POSITIONS],
+        batch_max_atoms=batch_max_atoms,
     )
 
     dataset.update({
