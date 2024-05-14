@@ -1,9 +1,0 @@
-molecule: ACE
-
-atoms:
-  H1:  RE  !
-  CH3: RE  P1A
-  H2:  RE  !
-  H3:  RE  !
-  C:   RE  P2A
-  O:   RE  P3AA
