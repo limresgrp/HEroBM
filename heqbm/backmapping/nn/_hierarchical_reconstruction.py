@@ -1,6 +1,6 @@
 import torch
 from torch_runstats.scatter import scatter
-from heqbm.backmapping.allegro._keys import ATOM_POSITIONS
+from herobm.backmapping.allegro._keys import ATOM_POSITIONS
 from geqtrain.nn import GraphModuleMixin
 from geqtrain.data import AtomicDataDict
 from geqtrain.nn.mace.irreps_tools import reshape_irreps

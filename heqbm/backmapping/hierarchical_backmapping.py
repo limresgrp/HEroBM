@@ -10,15 +10,15 @@ from pathlib import Path
 from typing import Dict, List, Optional
 from MDAnalysis.analysis import align
 
-from heqbm.mapper.hierarchical_mapper import HierarchicalMapper
-# from heqbm.backmapping.nn.quaternions import get_quaternions, qv_mult
-from heqbm.utils import DataDict
-from heqbm.utils.geometry import get_RMSD, set_phi, set_psi
-from heqbm.utils.backbone import MinimizeEnergy
-from heqbm.utils.pdbFixer import fixPDB
-from heqbm.utils.minimisation import minimise_impl
+from herobm.mapper.hierarchical_mapper import HierarchicalMapper
+# from herobm.backmapping.nn.quaternions import get_quaternions, qv_mult
+from herobm.utils import DataDict
+from herobm.utils.geometry import get_RMSD, set_phi, set_psi
+from herobm.utils.backbone import MinimizeEnergy
+from herobm.utils.pdbFixer import fixPDB
+from herobm.utils.minimisation import minimise_impl
 
-from heqbm.backmapping.allegro._keys import (
+from herobm.backmapping.allegro._keys import (
     ATOM_POSITIONS,
 )
 
@@ -208,7 +208,7 @@ class HierarchicalBackmapping:
         # print(f"Backmapping structure {self.input_filename}")
         backmapping_dataset = self.get_backmapping_dataset(frame_index)
 
-        print("Predicting distance vectors using HEqBM ENN & reconstructing atomistic structure...")
+        print("Predicting distance vectors using HEroBM ENN & reconstructing atomistic structure...")
         t = time.time()
 
         # Predict dihedrals and bead2atom relative vectors

@@ -4,7 +4,7 @@ from geqtrain.data import AtomicDataDict
 from geqtrain.train._loss import SimpleLoss
 from torch_runstats import Reduction
 
-from heqbm.utils.geometry import get_bonds, get_angles, get_dihedrals
+from herobm.utils.geometry import get_bonds, get_angles, get_dihedrals
 
 class InvariantsLoss(SimpleLoss):
 

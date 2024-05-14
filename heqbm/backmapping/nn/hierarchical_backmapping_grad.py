@@ -12,13 +12,13 @@ from nequip.data import AtomicDataDict
 from geqtrain.nn import GraphModuleMixin
 from geqtrain.utils.tp_utils import tp_path_exists
 
-from heqbm.backmapping.allegro.nn._fc import ScalarMLPFunction, ExponentialScalarMLPFunction
-from heqbm.backmapping.allegro import _keys
-from heqbm.backmapping.allegro.nn._strided import Contracter, MakeWeightedChannels, Linear
-from heqbm.backmapping.allegro.nn.cutoffs import cosine_cutoff, polynomial_cutoff
+from herobm.backmapping.allegro.nn._fc import ScalarMLPFunction, ExponentialScalarMLPFunction
+from herobm.backmapping.allegro import _keys
+from herobm.backmapping.allegro.nn._strided import Contracter, MakeWeightedChannels, Linear
+from herobm.backmapping.allegro.nn.cutoffs import cosine_cutoff, polynomial_cutoff
 
-from heqbm.backmapping.mace.blocks import EquivariantProductBasisBlock
-from heqbm.backmapping.mace.irreps_tools import reshape_irreps, inverse_reshape_irreps
+from herobm.backmapping.mace.blocks import EquivariantProductBasisBlock
+from herobm.backmapping.mace.irreps_tools import reshape_irreps, inverse_reshape_irreps
 
 
 def pick_mpl_function(func):

@@ -2,7 +2,7 @@ import numpy as np
 from typing import Dict, List, Optional, Union
 from plotly.subplots import make_subplots
 import plotly.graph_objects as go
-from heqbm.utils import DataDict
+from herobm.utils import DataDict
 
 
 def plot_backmapping(reconstructed_atom_pos, dataset, versors_list=[]):

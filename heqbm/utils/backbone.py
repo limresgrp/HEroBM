@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from typing import List, Optional
-from heqbm.utils.geometry import bound_angle, get_bonds, get_angles, get_dihedrals
+from herobm.utils.geometry import bound_angle, get_bonds, get_angles, get_dihedrals
 
 
 class MinimizeEnergy(torch.nn.Module):

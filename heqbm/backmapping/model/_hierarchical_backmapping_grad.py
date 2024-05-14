@@ -15,7 +15,7 @@ from nequip.nn.embedding import (
     RadialBasisSquaredEdgeEncoding,
 )
 
-from heqbm.backmapping.allegro._keys import (
+from herobm.backmapping.allegro._keys import (
     INVARIANT_EDGE_FEATURES,
     EQUIVARIANT_EDGE_FEATURES,
     INVARIANT_ATOM_FEATURES,
@@ -24,13 +24,13 @@ from heqbm.backmapping.allegro._keys import (
     EQUIVARIANT_EDGE_LENGTH_FEATURES,
     EQUIVARIANT_ATOM_LENGTH_FEATURES,
 )
-from heqbm.backmapping.allegro.nn import (
+from herobm.backmapping.allegro.nn import (
     NormalizedBasis,
     EdgewiseEnergySum,
     ExponentialScalarMLPFunction,
 )
 
-from heqbm.backmapping.nn import (
+from herobm.backmapping.nn import (
     HierarchicalBackmappingGradModule,
     HierarchicalBackmappingReadoutModule,
     RequireGradModule,
@@ -39,7 +39,7 @@ from heqbm.backmapping.nn import (
 
 
 def HierarchicalBackmappingGrad(config, initialize: bool, dataset: Optional[ConcatDataset] = None):
-    logging.debug("Building HEqBM model...")
+    logging.debug("Building HEroBM model...")
 
     # Handle avg num neighbors auto
     builder_utils.add_avg_num_neighbors(

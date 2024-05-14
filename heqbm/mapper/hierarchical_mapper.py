@@ -1,7 +1,7 @@
 import numpy as np
 from typing import Dict, List
 from cgmap.mapping import Mapper
-from heqbm.utils import DataDict
+from herobm.utils import DataDict
 import pandas as pd
 
 class HierarchicalMapper(Mapper):

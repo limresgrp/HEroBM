@@ -3,9 +3,9 @@ from e3nn import o3
 from e3nn.util.jit import compile_mode
 from nequip.data import AtomicDataDict
 from geqtrain.nn import GraphModuleMixin
-from heqbm.backmapping.allegro.nn._strided import Linear
-from heqbm.backmapping.allegro.nn._fc import ScalarMLPFunction
-from heqbm.backmapping.allegro._keys import (EQUIVARIANT_ATOM_LENGTH_FEATURES)
+from herobm.backmapping.allegro.nn._strided import Linear
+from herobm.backmapping.allegro.nn._fc import ScalarMLPFunction
+from herobm.backmapping.allegro._keys import (EQUIVARIANT_ATOM_LENGTH_FEATURES)
 
 
 @compile_mode("script")

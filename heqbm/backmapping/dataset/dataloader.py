@@ -1,6 +1,6 @@
 import torch
 from typing import List
-from heqbm.backmapping.dataset import Data
+from herobm.backmapping.dataset import Data
 
 
 class Collater(object):

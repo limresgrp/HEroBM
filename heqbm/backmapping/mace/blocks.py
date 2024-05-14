@@ -12,7 +12,7 @@ import torch.nn.functional
 from e3nn import nn, o3
 from e3nn.util.jit import compile_mode
 
-from heqbm.backmapping.mace.scatter import scatter_sum
+from herobm.backmapping.mace.scatter import scatter_sum
 
 from .irreps_tools import (
     linear_out_irreps,

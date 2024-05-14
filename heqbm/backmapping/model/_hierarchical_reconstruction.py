@@ -1,6 +1,6 @@
 from geqtrain.nn import GraphModuleMixin
-from heqbm.backmapping.nn import HierarchicalReconstructionModule
-from heqbm.backmapping.allegro._keys import ATOM_POSITIONS
+from herobm.backmapping.nn import HierarchicalReconstructionModule
+from herobm.backmapping.allegro._keys import ATOM_POSITIONS
 from geqtrain.data import AtomicDataDict
 
 

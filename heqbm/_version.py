@@ -1,4 +1,4 @@
-# HEqBM package version file
+# HEroBM package version file
 # See Python packaging guide
 # https://packaging.python.org/guides/single-sourcing-package-version/
 

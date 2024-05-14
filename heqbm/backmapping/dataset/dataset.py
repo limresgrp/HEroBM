@@ -4,8 +4,8 @@ import numpy as np
 
 from typing import Dict, List, Optional, Tuple
 from torch.utils.data import Dataset
-from heqbm.backmapping.dataset import Data
-from heqbm.utils import DataDict
+from herobm.backmapping.dataset import Data
+from herobm.utils import DataDict
 from cgmap.mapping import Mapper
 
 def get_datasets_from_mapping(mapping: Mapper, conf: Dict, shuffle: bool = False) -> Tuple[Dict[str, np.ndarray]]:

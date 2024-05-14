@@ -8,8 +8,8 @@ import numpy as np
 from os.path import basename
 from pathlib import Path
 
-from heqbm.mapper import HierarchicalMapper
-from heqbm.utils import DataDict
+from herobm.mapper import HierarchicalMapper
+from herobm.utils import DataDict
 
 torch.set_default_dtype(torch.float32)
 

@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from typing import Optional, Union
-from heqbm.utils import DataDict
+from herobm.utils import DataDict
 
 def Rx(theta: float) -> np.ndarray:
     return np.array([[ 1, 0           , 0             ],

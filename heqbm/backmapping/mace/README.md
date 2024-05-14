@@ -1,4 +1,4 @@
-HEqBM uses modules and code of the [`MACE`](https://github.com/ACEsuit/mace) [1] model.
+HEroBM uses modules and code of the [`MACE`](https://github.com/ACEsuit/mace) [1] model.
 We use, however, only a limited subset of that library.
 
 To simplify installation, we include and adapt here a small subset of `MACE` that is neccessary for our code.

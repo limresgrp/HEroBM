@@ -1,4 +1,4 @@
-from heqbm.utils import DataDict
+from herobm.utils import DataDict
 import ase.data
 
 def get_type_from_name(name: str) -> int:
