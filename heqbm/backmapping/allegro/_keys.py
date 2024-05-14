@@ -27,7 +27,6 @@ NODE_OUTPUT: Final[str] = "node_output"
 CONTRIBUTIONS_KEY: Final[str] = "contributions"
 CURL: Final[str] = "curl"
 
-
 register_fields(
     node_fields=[INVARIANT_ATOM_FEATURES, EQUIVARIANT_ATOM_FEATURES],
     edge_fields=[EDGE_ENERGY, EDGE_FEATURES, INVARIANT_EDGE_FEATURES, EQUIVARIANT_EDGE_FEATURES, CONTRIBUTIONS_KEY],

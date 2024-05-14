@@ -51,7 +51,7 @@ def build_npz_dataset(args_dict, skip_if_existent: bool = True):
         if skip_if_existent and os.path.isfile(output_filename):
             continue
         trajname_msg = f" and input trajectory {input_trajname}" if (input_trajname is not None and len(input_trajname) > 0) else ""
-        logging.info(f"Building dataset for input file {input_filename}{trajname_msg}.")
+        print(f"Building dataset for input file {input_filename}{trajname_msg}.")
         mapping.map(input_filename, input_trajname)
         yield to_npz(mapping.dataset), output_filename
     

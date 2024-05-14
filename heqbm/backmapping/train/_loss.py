@@ -20,7 +20,7 @@ class InvariantsLoss(SimpleLoss):
         idcs_mask = pred["bead2atom_reconstructed_idcs"]
         idcs_mask_slices = pred["bead2atom_reconstructed_idcs_slices"]
         atom_pos_slices = pred['atom_pos_slices']
-        center_atoms = pred[AtomicDataDict.EDGE_INDEX_KEY][0].unique()
+        center_atoms = torch.unique(pred[AtomicDataDict.EDGE_INDEX_KEY][0])
 
         atom_bond_idcs = ref["atom_bond_idcs"]
         atom_bond_idcs_slices = ref["atom_bond_idcs_slices"]

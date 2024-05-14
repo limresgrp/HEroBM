@@ -109,13 +109,13 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
             
             # Re-center predicted atoms' center of mass to the actual bead position
             # !!!!!!!!!!!!!!!!!!!!!!!!!!
-            # predicted_atoms_cm = scatter(
-            #     reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
-            #     b2a_idcs_row,
-            #     dim=0,
-            # )
-            # atom_shifts = predicted_atoms_cm - bead_pos[center_atoms]
-            # reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] -= atom_shifts[b2a_idcs_row]
+            predicted_atoms_cm = scatter(
+                reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
+                b2a_idcs_row,
+                dim=0,
+            )
+            atom_shifts = predicted_atoms_cm - bead_pos[center_atoms]
+            reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] -= atom_shifts[b2a_idcs_row]
         
         data[self.out_field] = torch.nanmean(reconstructed_atom_pos, dim=0)
         return data
