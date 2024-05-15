@@ -161,6 +161,8 @@ class HierarchicalMapper(Mapper):
         cols[:2] = cols[1::-1]
         df3B = df3B[cols]
         df3B = df3B[df3B['a1'] != df3B['a3']]
+        df3B[['a1', 'a3']] = pd.DataFrame(np.sort(df3B[['a1', 'a3']], axis=1), index=df3B.index)
+        df3B = df3B.drop_duplicates()
         self._angle_idcs = np.concatenate([df3A.values, df3B.values])
         self._angle_idcs = self._angle_idcs[np.all(np.isin(self._angle_idcs, atoms_to_reconstruct_idcs), axis=1)]
 
