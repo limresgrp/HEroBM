@@ -1,11 +1,10 @@
 import argparse
 import json
-import logging
 import os
 import torch
 import numpy as np
 
-from os.path import basename
+from os.path import dirname
 from pathlib import Path
 
 from herobm.mapper import HierarchicalMapper
@@ -17,6 +16,7 @@ torch.set_default_dtype(torch.float32)
 # python build_dataset.py -m martini3_lipids -i /storage_common/angiod/POPC/ -t /storage_common/angiod/POPC/ -if gro -s "resname POPC" -tf trr -l 100 -o /storage_common/angiod/POPC/backmapping/npz/membrane/train/
 # python build_dataset.py -m martini3_bbcommon -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/martini3.bbcommon.2.9k/train
 # python build_dataset.py -m ca -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/ca.2.9k/train
+# python build_dataset.py -m martini3 -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/martini3.2.9k/train
 
 YOUR_PATH_TO_DATA_FOLDER = "/storage_common/angiod/"
 
@@ -62,94 +62,11 @@ def build_npz_dataset(args_dict, skip_if_existent: bool = True):
     config_update_text += '"'
     print(config_update_text)
 
-# def build_npz_dataset(args_dict, skip_if_existent: bool = False):
-#     config: Dict[str, str] = dict()
-
-#     yaml_config = args_dict.pop("config", None)
-#     if yaml_config is not None:
-#         config.update(yaml.safe_load(Path(yaml_config).read_text()))
-    
-#     args_dict = {key: value for key, value in args_dict.items() if value is not None}
-#     config.update(args_dict)
-
-#     if config.get("trajslice", None) is not None:
-#         config["trajslice"] = parse_slice(config["trajslice"])
-
-#     mapping = HierarchicalMapper(args_dict=args_dict)
-
-#     input = config.get("input")
-#     inputtraj = config.get("inputtraj", None)
-#     output = config.get("output", input if os.path.isdir(input) else dirname(input))
-
-#     if os.path.isdir(input):
-#         input_folder = input
-#         input_format = config.get("inputformat", "*")
-#         filter = config.get("filter", None)
-#         input_basenames = None
-#         if filter is not None:
-#             with open(filter, 'r') as f:
-#                 input_basenames = [line.strip() for line in f.readlines()]
-#         input_filenames = [
-#             fname for fname in
-#             list(glob.glob(os.path.join(input_folder, f"*.{input_format}")))
-#             if input_basenames is None
-#             or basename(fname).replace(f".{input_format}", "") in input_basenames
-#         ]
-#     else:
-#         input_folder = None
-#         input_filename = input
-#         input_filenames = [input_filename]
-    
-#     if inputtraj is None:
-#         input_trajnames = [None for _ in range(len(input_filenames))]
-#     else:
-#         if os.path.isdir(inputtraj):
-#             traj_folder = inputtraj
-#             traj_format = config.get("trajformat", "*")
-#             filter = config.get("filter", None)
-#             input_basenames = None
-#             if filter is not None:
-#                 with open(filter, 'r') as f:
-#                     input_basenames = [line.strip() for line in f.readlines()]
-#             input_trajnames = [
-#                 fname for fname in
-#                 list(glob.glob(os.path.join(traj_folder, f"*.{traj_format}")))
-#                 if input_basenames is None
-#                 or basename(fname).replace(f".{traj_format}", "") in input_basenames
-#             ]
-#         else:
-#             input_trajnames = [inputtraj]
-#         config["inputtraj"] = input_trajnames
-    
-#     if input_folder is None:
-#         mapping.map()
-#         yield to_npz(mapping.dataset), config
-#     else:
-#         for input_filename, input_trajname in zip(input_filenames, input_trajnames):
-#             config["input"] = input_filename
-#             config["inputtraj"] = [input_trajname] if input_trajname is not None else []
-#             p = Path(os.path.join(output, basename(input_filename)))
-#             config["output"] = str(p.with_suffix('.npz'))
-#             if skip_if_existent and os.path.isfile(config["output"]):
-#                 yield None, None
-#                 continue
-#             print(f"Mapping structure {input_filename}")
-#             mapping.map()
-#             yield to_npz(mapping.dataset), config
-    
-#     config_update_text = f'''Update the training configuration file with the following snippet (excluding quotation marks):
-#     \n"\neq_out_irreps: {mapping.bead_reconstructed_size}x1o\n\ntype_names:\n'''
-#     for bt in [x[0] for x in sorted(mapping.bead_types_dict.items(), key=lambda x: x[1])]:
-#         config_update_text += f'- {bt}\n'
-#     config_update_text += '"'
-#     print(config_update_text)
-
-def build_dataset(args_dict):
-    for npz_dataset, config in build_npz_dataset(args_dict, skip_if_existent=False):
+def build_dataset(args_dict, skip_if_existent=False):
+    for npz_dataset, output_filename in build_npz_dataset(args_dict, skip_if_existent=skip_if_existent):
         if npz_dataset is not None:
-            os.makedirs(config["output"], exist_ok=True)
-            p = Path(os.path.join(config["output"], basename(config["input"])))
-            np.savez(p.rename(p.with_suffix('.npz')), **npz_dataset)
+            os.makedirs(dirname(output_filename), exist_ok=True)
+            np.savez(output_filename, **npz_dataset)
 
 def parse_command_line(args=None):
     parser = argparse.ArgumentParser(
@@ -224,12 +141,14 @@ def parse_command_line(args=None):
         help="Extra arguments to pass to the mapper.",
         type=json.loads,
     )
+    parser.add_argument('--isatomistic', action='store_true', default=True, help='Specify that the input is atomistic (default)')
+    parser.add_argument('-cg', action='store_false', dest='isatomistic', help='Specify that the input is coarse-grained')
 
     return parser.parse_args(args=args)
 
 def main(args=None):
     args_dict = parse_command_line(args)
-    build_dataset(args_dict)    
+    build_dataset(vars(args_dict))
 
 
 if __name__ == "__main__":
