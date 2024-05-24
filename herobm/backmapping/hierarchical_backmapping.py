@@ -359,7 +359,7 @@ class HierarchicalBackmapping:
                 positions,
                 backmapped_minimised_filename,
                 restrain_atoms=[],
-                tolerance=200.,
+                tolerance=50.,
             )
         except Exception as e:
             pass

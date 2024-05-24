@@ -74,6 +74,9 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
         center_atoms = torch.unique(data[AtomicDataDict.EDGE_INDEX_KEY][0])
 
         if self.normalize_b2a_rel_vec:
+            with torch.no_grad():
+                norm_factor = bead2atom_relative_vectors.max().item()
+            bead2atom_relative_vectors /= norm_factor
             norm = torch.norm(bead2atom_relative_vectors, dim=-1, keepdim=True)
             bead2atom_relative_vectors = bead2atom_relative_vectors / (norm + 1.e-12)
             bead2atom_relative_vectors = bead2atom_relative_vectors * self.atom_type2bond_lengths[data.get(AtomicDataDict.NODE_TYPE_KEY).squeeze(-1)]
@@ -109,13 +112,13 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
             
             # Re-center predicted atoms' center of mass to the actual bead position
             # !!!!!!!!!!!!!!!!!!!!!!!!!!
-            predicted_atoms_cm = scatter(
-                reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
-                b2a_idcs_row,
-                dim=0,
-            )
-            atom_shifts = predicted_atoms_cm - bead_pos[center_atoms]
-            reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] -= atom_shifts[b2a_idcs_row]
+            # predicted_atoms_cm = scatter(
+            #     reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
+            #     b2a_idcs_row,
+            #     dim=0,
+            # )
+            # atom_shifts = predicted_atoms_cm - bead_pos[center_atoms]
+            # reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] -= atom_shifts[b2a_idcs_row]
         
         data[self.out_field] = torch.nanmean(reconstructed_atom_pos, dim=0)
         return data
