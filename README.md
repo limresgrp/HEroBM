@@ -1,5 +1,7 @@
 # HEroBM
 
+![Alt text](logo.svg?raw=true "HEroBM")
+
 Instructions for setting up virtual environment and installing all required packages:
 
 1 - Create a new virtual environment with python>=3.8
