@@ -1,10 +1,6 @@
 import argparse
 import json
-import os
 import torch
-import numpy as np
-
-from os.path import dirname
 from pathlib import Path
 
 from herobm.mapper import HierarchicalMapper
@@ -34,26 +30,14 @@ def to_npz(dataset):
         ]
     }
 
-def build_npz_dataset(args_dict, skip_if_existent: bool = True):
+def build_dataset(args_dict):
     mapping = HierarchicalMapper(args_dict=args_dict)
-
-    for input_filename, input_trajname in mapping.iterate():
-        p = Path(input_filename)
-        output = args_dict.get('output', None)
-        if output is None:
-            output_filename = str(Path(p.parent, p.stem + '.npz'))
-        else:
-            o = Path(output)
-            if o.suffix == 'npz':
-                output_filename = output
-            else:
-                output_filename = str(Path(o.parent, o.stem, p.stem + '.npz'))
-        if skip_if_existent and os.path.isfile(output_filename):
-            continue
-        trajname_msg = f" and input trajectory {input_trajname}" if (input_trajname is not None and len(input_trajname) > 0) else ""
-        print(f"Building dataset for input file {input_filename}{trajname_msg}.")
-        mapping.map(input_filename, input_trajname)
-        yield to_npz(mapping.dataset), output_filename
+    
+    for m in mapping():
+        p = Path(m.input_filename)
+        filename = str(Path(args_dict.get('output', p.parent), p.stem + '.data' + '.npz'))
+        m.save_npz(filename=filename, pos_unit='Angstrom')
+        print(f'File {filename} saved!')
     
     config_update_text = f'''Update the training configuration file with the following snippet (excluding quotation marks):
     \n"\neq_out_irreps: {mapping.bead_reconstructed_size}x1o\n\ntype_names:\n'''
@@ -61,12 +45,6 @@ def build_npz_dataset(args_dict, skip_if_existent: bool = True):
         config_update_text += f'- {bt}\n'
     config_update_text += '"'
     print(config_update_text)
-
-def build_dataset(args_dict, skip_if_existent=False):
-    for npz_dataset, output_filename in build_npz_dataset(args_dict, skip_if_existent=skip_if_existent):
-        if npz_dataset is not None:
-            os.makedirs(dirname(output_filename), exist_ok=True)
-            np.savez(output_filename, **npz_dataset)
 
 def parse_command_line(args=None):
     parser = argparse.ArgumentParser(
