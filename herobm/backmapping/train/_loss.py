@@ -22,8 +22,8 @@ class InvariantsLoss(SimpleLoss):
         atom_pos_slices = pred['atom_pos_slices']
         center_atoms = torch.unique(pred[AtomicDataDict.EDGE_INDEX_KEY][0])
 
-        atom_bond_idcs = ref["atom_bond_idcs"]
-        atom_bond_idcs_slices = ref["atom_bond_idcs_slices"]
+        atom_bond_idcs = ref["atom_bond_idx"]
+        atom_bond_idcs_slices = ref["atom_bond_idx_slices"]
 
         bond_pred_list, bond_ref_list = [], []
         for (b2a_idcs_from, b2a_idcs_to), (atom_bond_idx_from, atom_bond_idx_to), atom_pos_from in zip(
@@ -47,8 +47,8 @@ class InvariantsLoss(SimpleLoss):
         else:
             loss_bonds = loss_bonds.mean()
         
-        atom_angle_idcs = ref["atom_angle_idcs"]
-        atom_angle_idcs_slices = ref["atom_angle_idcs_slices"]
+        atom_angle_idcs = ref["atom_angle_idx"]
+        atom_angle_idcs_slices = ref["atom_angle_idx_slices"]
 
         angle_pred_list, angle_ref_list = [], []
         for (b2a_idcs_from, b2a_idcs_to), (atom_angle_idx_from, atom_angle_idx_to), atom_pos_from in zip(
@@ -88,7 +88,7 @@ class InvariantsLoss(SimpleLoss):
 class RMSDLoss(SimpleLoss):
 
     def __init__(self, func_name: str, params: dict = ...):
-        super().__init__(func_name, params)
+        super().__init__('MSELoss', params)
         self.reduction = Reduction.RMS
 
     def __call__(
@@ -108,4 +108,3 @@ class RMSDLoss(SimpleLoss):
             # The accumulate_batch() method used by metrics first squares the loss, then computes the average and then extracts the root.
             # Thus, we need to pass the sqrt(loss) to obtain the RMSD as output.
             return torch.sqrt(loss)
-        

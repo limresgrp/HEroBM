@@ -18,10 +18,6 @@ from herobm.utils.backbone import MinimizeEnergy
 from herobm.utils.pdbFixer import fixPDB
 from herobm.utils.minimisation import minimise_impl
 
-from herobm.backmapping.allegro._keys import (
-    ATOM_POSITIONS,
-)
-
 from geqtrain.utils import Config
 from geqtrain.utils._global_options import _set_global_options
 from geqtrain.train import Trainer
@@ -166,35 +162,38 @@ class HierarchicalBackmapping:
         for mapping in self.mapping():
             yield mapping
 
-    def backmap(self, mapping, optimise_backbone: bool = True):
+    def backmap(self, optimise_backbone: bool = True, tolerance: float = 50., frame_idcs=None):
         backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames = [], [], [], []
-        frame_idcs = range(0, len(mapping))
-        n_frames = max(frame_idcs) + 1
+        for mapping in self.map():
+            if frame_idcs is None:
+                frame_idcs = range(0, len(mapping))
+            n_frames = max(frame_idcs) + 1
 
-        backmapped_u = None
-        for frame_index in frame_idcs:
-            try:
-                backmapping_dataset = self.backmap_impl(
-                    frame_index=frame_index,
-                    optimise_backbone=optimise_backbone,
-                    optimise_dihedrals=False,
-                )
+            backmapped_u = None
+            for frame_index in frame_idcs:
+                try:
+                    backmapping_dataset = self.backmap_impl(
+                        frame_index=frame_index,
+                        optimise_backbone=optimise_backbone,
+                        optimise_dihedrals=False,
+                    )
 
-                backmapped_u, backmapped_filename, backmapped_minimised_filename, true_filename, cg_filename = self.to_pdb(
-                    backmapping_dataset=backmapping_dataset,
-                    n_frames=n_frames,
-                    frame_index=frame_index,
-                    backmapped_u=backmapped_u,
-                    save_CG=True,
-                )
-                backmapped_filenames.append(backmapped_filename)
-                backmapped_minimised_filenames.append(backmapped_minimised_filename)
-                if true_filename is not None:
-                    true_filenames.append(true_filename)
-                cg_filenames.append(cg_filename)
-            except Exception as e:
-                print(e)
-                print("Skipping.")
+                    backmapped_u, backmapped_filename, backmapped_minimised_filename, true_filename, cg_filename = self.to_pdb(
+                        backmapping_dataset=backmapping_dataset,
+                        n_frames=n_frames,
+                        frame_index=frame_index,
+                        backmapped_u=backmapped_u,
+                        save_CG=True,
+                        tolerance=tolerance,
+                    )
+                    backmapped_filenames.append(backmapped_filename)
+                    backmapped_minimised_filenames.append(backmapped_minimised_filename)
+                    if true_filename is not None:
+                        true_filenames.append(true_filename)
+                    cg_filenames.append(cg_filename)
+                except Exception as e:
+                    print(e)
+                    print("Skipping.")
         
         return backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames
     
@@ -223,7 +222,7 @@ class HierarchicalBackmapping:
         print(f"Finished. Time: {time.time() - t}")
 
         if optimise_backbone is None:
-            optimise_backbone = self.config.get("optimizebackbone", True)
+            optimise_backbone = self.config.get("optimisebackbone", True)
 
         if optimise_backbone:
             print("Optimizing backbone...")
@@ -310,6 +309,7 @@ class HierarchicalBackmapping:
             frame_index: int,
             backmapped_u: Optional[mda.Universe] = None,
             save_CG: bool = False,
+            tolerance: float = 50.,
         ):
         print(f"Saving structures...")
         t = time.time()
@@ -359,7 +359,7 @@ class HierarchicalBackmapping:
                 positions,
                 backmapped_minimised_filename,
                 restrain_atoms=[],
-                tolerance=50.,
+                tolerance=tolerance,
             )
         except Exception as e:
             pass
@@ -509,13 +509,13 @@ def run_backmapping_inference(
         model=model,
         batch=data,
         node_out_keys=[AtomicDataDict.NODE_OUTPUT_KEY],
-        extra_out_keys=[ATOM_POSITIONS],
+        extra_out_keys=[DataDict.ATOM_POSITION],
         batch_max_atoms=batch_max_atoms,
     )
 
     dataset.update({
         DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED: out[AtomicDataDict.NODE_OUTPUT_KEY].cpu().numpy(),
-        DataDict.ATOM_POSITION_PRED: np.expand_dims(out[ATOM_POSITIONS].cpu().numpy(), axis=0),
+        DataDict.ATOM_POSITION_PRED: np.expand_dims(out[DataDict.ATOM_POSITION].cpu().numpy(), axis=0),
     })
 
     return dataset

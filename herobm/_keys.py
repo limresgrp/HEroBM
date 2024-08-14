@@ -16,6 +16,7 @@ CA_ATOM_IDCS: Final[str] = "ca_atom_idcs"
 CA_BEAD_POSITION: Final[str] = "ca_bead_pos"
 CA_BEAD_IDCS: Final[str] = "ca_bead_idcs"
 
+ATOM_POSITION: Final[str] = "atom_pos"
 ATOM_POSITION_PRED: Final[str] = "atom_pos_pred"
 
 BEAD2ATOM_IDCS: Final[str] = "bead2atom_idcs"

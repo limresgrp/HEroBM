@@ -1,14 +1,15 @@
 from geqtrain.nn import GraphModuleMixin
 from herobm.backmapping.nn import HierarchicalReconstructionModule
-from herobm.backmapping.allegro._keys import ATOM_POSITIONS
 from geqtrain.data import AtomicDataDict
+
+from herobm.utils import DataDict
 
 
 def HierarchicalReconstruction(
         config,
         model: GraphModuleMixin,
         in_field: str = AtomicDataDict.NODE_OUTPUT_KEY,
-        out_field: str = ATOM_POSITIONS,
+        out_field: str = DataDict.ATOM_POSITION,
     ) -> HierarchicalReconstructionModule:
     
     if in_field not in model.irreps_out:

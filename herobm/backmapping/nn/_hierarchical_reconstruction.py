@@ -1,11 +1,12 @@
 import torch
 from torch_runstats.scatter import scatter
-from herobm.backmapping.allegro._keys import ATOM_POSITIONS
 from geqtrain.nn import GraphModuleMixin
 from geqtrain.data import AtomicDataDict
 from geqtrain.nn.mace.irreps_tools import reshape_irreps
 from e3nn.o3 import Irreps
 from e3nn.util.jit import compile_mode
+
+from herobm.utils import DataDict
 
 @compile_mode("script")
 class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
@@ -15,7 +16,7 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
         func: GraphModuleMixin,
         num_types: int,
         in_field: str = AtomicDataDict.NODE_OUTPUT_KEY,
-        out_field: str = ATOM_POSITIONS,
+        out_field: str = DataDict.ATOM_POSITION,
         out_field_irreps: Irreps = Irreps("1x1o"),
         normalize_b2a_rel_vec: bool = True,
     ):
@@ -64,6 +65,8 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
 
         # bead2atom_relative_vectors = data[self.in_field]
         bead2atom_relative_vectors = self.reshape(data[self.in_field])
+        if torch.any(torch.isnan(bead2atom_relative_vectors)):
+            raise Exception("NaN")
         bead_pos = data[AtomicDataDict.POSITIONS_KEY]
         atom_pos_slices        = data.get("atom_pos_slices", torch.tensor([0, data.get("bead2atom_reconstructed_idcs").max()+1], dtype=int, device=bead_pos.device))
         idcs_mask              = data.get("bead2atom_reconstructed_idcs")
@@ -74,11 +77,11 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
         center_atoms = torch.unique(data[AtomicDataDict.EDGE_INDEX_KEY][0])
 
         if self.normalize_b2a_rel_vec:
-            with torch.no_grad():
-                norm_factor = bead2atom_relative_vectors.max().item()
-            bead2atom_relative_vectors /= norm_factor
+            # with torch.no_grad():
+            # norm_factor = bead2atom_relative_vectors.max().item()
+            # bead2atom_relative_vectors /= norm_factor
             norm = torch.norm(bead2atom_relative_vectors, dim=-1, keepdim=True)
-            bead2atom_relative_vectors = bead2atom_relative_vectors / (norm + 1.e-12)
+            bead2atom_relative_vectors = bead2atom_relative_vectors / (norm + 1.e-3)
             bead2atom_relative_vectors = bead2atom_relative_vectors * self.atom_type2bond_lengths[data.get(AtomicDataDict.NODE_TYPE_KEY).squeeze(-1)]
 
         for (b2a_idcs_from, b2a_idcs_to), atom_pos_from in zip(
