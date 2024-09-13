@@ -15,8 +15,8 @@ from herobm.mapper.hierarchical_mapper import HierarchicalMapper
 from herobm.utils import DataDict
 from herobm.utils.geometry import get_RMSD, set_phi, set_psi
 from herobm.utils.backbone import MinimizeEnergy
-from herobm.utils.pdbFixer import fixPDB
-from herobm.utils.minimisation import minimise_impl
+# from herobm.utils.pdbFixer import fixPDB
+# from herobm.utils.minimisation import minimise_impl
 
 from geqtrain.utils import Config
 from geqtrain.utils._global_options import _set_global_options
@@ -351,20 +351,21 @@ class HierarchicalBackmapping:
         with mda.Writer(backmapped_filename, n_atoms=backmapped_u.atoms.n_atoms) as w:
             w.write(backmapped_sel.atoms)
         
-        # Write pdb of minimised structure
-        topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
-        backmapped_minimised_filename = os.path.join(output_folder, f"backmapped_min_{frame_index}.pdb")
+        backmapped_minimised_filename = None
+        # # # # Write pdb of minimised structure
+        # # # topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
+        # # # backmapped_minimised_filename = os.path.join(output_folder, f"backmapped_min_{frame_index}.pdb")
         
-        try:
-            minimise_impl(
-                topology,
-                positions,
-                backmapped_minimised_filename,
-                restrain_atoms=[],
-                tolerance=tolerance,
-            )
-        except Exception as e:
-            pass
+        # # # try:
+        # # #     minimise_impl(
+        # # #         topology,
+        # # #         positions,
+        # # #         backmapped_minimised_filename,
+        # # #         restrain_atoms=[],
+        # # #         tolerance=tolerance,
+        # # #     )
+        # # # except Exception as e:
+        # # #     pass
 
         print(f"Finished. Time: {time.time() - t}")
 
