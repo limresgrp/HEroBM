@@ -3,9 +3,8 @@ import torch
 from e3nn import o3
 from e3nn.util.jit import compile_mode
 from geqtrain.data import AtomicDataDict
-from geqtrain.nn import GraphModuleMixin
+from geqtrain.nn import GraphModuleMixin, ScalarMLPFunction
 from geqtrain.nn.allegro import Linear
-from geqtrain.nn.allegro._fc import ScalarMLPFunction
 from geqtrain.nn.mace.irreps_tools import reshape_irreps, inverse_reshape_irreps
 from geqtrain.utils._global_options import DTYPE
 
@@ -15,9 +14,9 @@ class ReadoutModule(GraphModuleMixin, torch.nn.Module):
 
     def __init__(
         self,
-        out_irreps: Union[o3.Irreps, str],
         field: str,
         out_field: Optional[str] = None,
+        out_irreps: Union[o3.Irreps, str] = None,
         readout_latent=ScalarMLPFunction,
         readout_latent_kwargs={},
         eq_has_internal_weights: bool = False,
@@ -38,6 +37,7 @@ class ReadoutModule(GraphModuleMixin, torch.nn.Module):
             out_irreps if isinstance(out_irreps, o3.Irreps)
             else (
                 o3.Irreps(out_irreps) if isinstance(out_irreps, str)
+                else irreps_in[self.out_field] if self.out_field in irreps_in
                 else in_irreps
             )
         )
@@ -57,8 +57,8 @@ class ReadoutModule(GraphModuleMixin, torch.nn.Module):
         self.n_scalars_in = in_irreps.ls.count(0)
         assert self.n_scalars_in > 0
 
-        readout_latent_kwargs['zero_init_last_layer_weights'] = True
-        readout_latent_kwargs.pop('dropout')
+        readout_latent_kwargs['use_layer_norm'] = True
+        readout_latent_kwargs.pop('dropout', None)
         self.n_scalars_out = out_irreps.ls.count(0)
         if self.n_scalars_out > 0:
             self.has_inv_out = True
@@ -111,14 +111,16 @@ class ReadoutModule(GraphModuleMixin, torch.nn.Module):
             device=features.device
         )
 
-        if self.has_inv_out:
-            out_features[:, :self.n_scalars_out] += self.inv_readout(features[:, :self.n_scalars_in])
+        if self.has_inv_out: # invariant output may be present or not
+            out_features[:, :self.n_scalars_out] += self.inv_readout(features[:, :self.n_scalars_in]) # normal mlp on scalar component if present
 
+        # vectorial handling
         if self.has_eq_out and self.reshape_in is not None:
             eq_features = self.reshape_in(features[:, self.n_scalars_in:])
-            if self.eq_has_internal_weights:
+            if self.eq_has_internal_weights: # eq linear layer with its own inner weights
                 eq_features = self.eq_readout(eq_features)
             else:
+                # else the weights are computed via mlp on scalars
                 weights = self.weights_emb(features[:, :self.n_scalars_in])
                 eq_features = self.eq_readout(eq_features, weights)
             out_features[:, self.n_scalars_out:] += self.reshape_back_features(eq_features)

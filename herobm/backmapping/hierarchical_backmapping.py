@@ -21,8 +21,8 @@ from herobm.utils.minimisation import minimise_impl
 from geqtrain.utils import Config
 from geqtrain.utils._global_options import _set_global_options
 from geqtrain.train import Trainer
-from geqtrain.data import AtomicDataDict
-from geqtrain.scripts.evaluate import evaluate
+from geqtrain.data import AtomicData, AtomicDataDict
+from geqtrain.scripts.evaluate import run_inference
 from geqtrain.scripts.deploy import load_deployed_model, R_MAX_KEY
 
 
@@ -162,9 +162,9 @@ class HierarchicalBackmapping:
         for mapping in self.mapping():
             yield mapping
 
-    def backmap(self, optimise_backbone: bool = True, tolerance: float = 50., frame_idcs=None):
+    def backmap(self, optimise_backbone: bool = True, tolerance: float = 50., frame_idcs: Optional[List[int]] = None, max_num: int = None):
         backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames = [], [], [], []
-        for mapping in self.map():
+        for count, mapping in enumerate(self.map()):
             if frame_idcs is None:
                 frame_idcs = range(0, len(mapping))
             n_frames = max(frame_idcs) + 1
@@ -194,6 +194,8 @@ class HierarchicalBackmapping:
                 except Exception as e:
                     print(e)
                     print("Skipping.")
+            if max_num is not None and count >= max_num - 1:
+                break
         
         return backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames
     
@@ -475,7 +477,7 @@ def run_backmapping_inference(
 ):
 
     bead_pos = dataset[DataDict.BEAD_POSITION][0]
-    bead_types = dataset[DataDict.BEAD_TYPES]
+    bead_types = dataset[DataDict.BEAD_TYPES] + 1 # + 1 because during training there is also the undefined type, which is 0
     bead_residcs = torch.from_numpy(dataset[DataDict.BEAD_RESIDCS]).long()
     bead_pos = torch.from_numpy(bead_pos).float()
     bead_types = torch.from_numpy(bead_types).long().reshape(-1, 1)
@@ -501,16 +503,14 @@ def run_backmapping_inference(
         DataDict.LEVEL_IDCS_ANCHOR_MASK: lvl_idcs_anchor_mask,
         f"{DataDict.ATOM_POSITION}_slices": torch.tensor([0, dataset[DataDict.ATOM_POSITION].shape[1]])
     }
-
-    for v in data.values():
-        v.to(device)
-
-    out = evaluate(
+    
+    out, ref_data, batch_chunk_center_nodes, num_batch_center_nodes = run_inference(
         model=model,
-        batch=data,
-        node_out_keys=[AtomicDataDict.NODE_OUTPUT_KEY],
-        extra_out_keys=[DataDict.ATOM_POSITION],
-        batch_max_atoms=batch_max_atoms,
+        data=AtomicData.from_dict(data),
+        device=device,
+        cm=torch.no_grad(),
+        already_computed_nodes=None,
+        skip_chunking=True,
     )
 
     dataset.update({

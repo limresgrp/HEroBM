@@ -5,8 +5,7 @@ from einops import rearrange
 from torch_scatter import scatter
 from torch_scatter.composite import scatter_softmax
 from geqtrain.data import AtomicDataDict
-from geqtrain.nn import GraphModuleMixin
-from geqtrain.nn.allegro._fc import ScalarMLPFunction
+from geqtrain.nn import GraphModuleMixin, ScalarMLPFunction
 from geqtrain.nn.mace.irreps_tools import reshape_irreps, inverse_reshape_irreps
 
 
@@ -28,6 +27,7 @@ class EdgewiseReduce(GraphModuleMixin, torch.nn.Module):
         head_dim: int = 32,
         use_attention: bool = True,
         irreps_in={},
+        avg_num_neighbors: Optional[float] = 5.0,
     ):
         """Sum edges into nodes."""
         super().__init__()
@@ -92,6 +92,12 @@ class EdgewiseReduce(GraphModuleMixin, torch.nn.Module):
             self.node_attr_to_query = None
             self.edge_feat_to_key = None
 
+        if not self.use_attention:
+            self.register_buffer(
+                "env_sum_normalization",
+                torch.as_tensor([avg_num_neighbors]).rsqrt(),
+            )
+
     def forward(self, data: AtomicDataDict.Type) -> AtomicDataDict.Type:
         edge_center = data[AtomicDataDict.EDGE_INDEX_KEY][0]
         edge_feat = data[self.field]
@@ -114,5 +120,8 @@ class EdgewiseReduce(GraphModuleMixin, torch.nn.Module):
 
         # aggregation step
         data[self.out_field] = scatter(edge_feat, edge_center, dim=0, dim_size=num_nodes)
+
+        if not self.use_attention:
+            data[self.out_field] *= self.env_sum_normalization
 
         return data
