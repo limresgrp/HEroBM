@@ -20,4 +20,5 @@ def HierarchicalReconstruction(
         num_types=config['num_types'],
         in_field=in_field,
         out_field=out_field,
+        normalize_b2a_rel_vec=config.get('normalize_b2a_rel_vec', True),
     )
