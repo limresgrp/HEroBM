@@ -6,6 +6,10 @@ import torch
 import numpy as np
 import MDAnalysis as mda
 
+import warnings
+warnings.filterwarnings("ignore")
+
+from os.path import basename
 from pathlib import Path
 from typing import Dict, List, Optional
 from MDAnalysis.analysis import align
@@ -30,7 +34,6 @@ class HierarchicalBackmapping:
     mapping: HierarchicalMapper
 
     input_folder: Optional[str]
-    input_filenames: List[str]
     model_config: Dict[str, str]
     model_r_max: float
 
@@ -92,7 +95,7 @@ class HierarchicalBackmapping:
     
     @property
     def num_structures(self):
-        return len(self.input_filenames)
+        return len(self.mapping.input_filenames)
     
     def get_backmapping_dataset(self, frame_index: Optional[int] = None):
         if frame_index is None:
@@ -162,7 +165,7 @@ class HierarchicalBackmapping:
 
     def backmap(self, optimise_backbone: bool = True, tolerance: float = 50., frame_idcs: Optional[List[int]] = None, max_num: int = None):
         backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames = [], [], [], []
-        for count, mapping in enumerate(self.map()):
+        for input_filenames_index, mapping in enumerate(self.map()):
             if frame_idcs is None:
                 frame_idcs = range(0, len(mapping))
             n_frames = max(frame_idcs) + 1
@@ -178,6 +181,7 @@ class HierarchicalBackmapping:
 
                     backmapped_u, backmapped_filename, backmapped_minimised_filename, true_filename, cg_filename = self.to_pdb(
                         backmapping_dataset=backmapping_dataset,
+                        input_filenames_index=input_filenames_index,
                         n_frames=n_frames,
                         frame_index=frame_index,
                         backmapped_u=backmapped_u,
@@ -192,7 +196,7 @@ class HierarchicalBackmapping:
                 except Exception as e:
                     print(e)
                     print("Skipping.")
-            if max_num is not None and count >= max_num - 1:
+            if max_num is not None and input_filenames_index >= max_num - 1:
                 break
         
         return backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames
@@ -204,7 +208,6 @@ class HierarchicalBackmapping:
         optimise_backbone: Optional[bool] = None,
         optimise_dihedrals: bool = False,
     ):
-        # print(f"Backmapping structure {self.input_filename}")
         backmapping_dataset = self.get_backmapping_dataset(frame_index)
 
         print("Predicting distance vectors using HEroBM ENN & reconstructing atomistic structure...")
@@ -305,6 +308,7 @@ class HierarchicalBackmapping:
     def to_pdb(
             self,
             backmapping_dataset: Dict,
+            input_filenames_index: int,
             n_frames: int,
             frame_index: int,
             backmapped_u: Optional[mda.Universe] = None,
@@ -313,8 +317,8 @@ class HierarchicalBackmapping:
         ):
         print(f"Saving structures...")
         t = time.time()
-        output_folder = self.config["output"]
-        os.makedirs(output_folder, exist_ok=True)
+        os.makedirs(self.output_folder, exist_ok=True)
+        prefix = basename(self.mapping.input_filenames[input_filenames_index])
 
         # Write pdb file of CG structure
         cg_filename = None
@@ -323,7 +327,7 @@ class HierarchicalBackmapping:
             cg_u.trajectory[frame_index]
             cg_sel = cg_u.select_atoms('all')
             cg_sel.positions = np.nan_to_num(backmapping_dataset[DataDict.BEAD_POSITION])
-            cg_filename = os.path.join(output_folder, f"CG_{frame_index}.pdb")
+            cg_filename = os.path.join(self.output_folder, f"{prefix}.CG_{frame_index}.pdb")
             with mda.Writer(cg_filename, n_atoms=cg_sel.atoms.n_atoms) as w:
                 w.write(cg_sel.atoms)
         
@@ -338,14 +342,14 @@ class HierarchicalBackmapping:
             true_sel = backmapped_u.select_atoms('all')
             true_positions = backmapping_dataset[DataDict.ATOM_POSITION][0]
             true_sel.positions = true_positions[~np.any(np.isnan(positions_pred), axis=-1)]
-            true_filename = os.path.join(output_folder, f"true_{frame_index}.pdb")
+            true_filename = os.path.join(self.output_folder, f"{prefix}.true_{frame_index}.pdb")
             with mda.Writer(true_filename, n_atoms=backmapped_u.atoms.n_atoms) as w:
                 w.write(true_sel.atoms)
 
         # Write pdb of backmapped structure
         backmapped_sel = backmapped_u.select_atoms('all')
         backmapped_sel.positions = positions_pred[~np.any(np.isnan(positions_pred), axis=-1)]
-        backmapped_filename = os.path.join(output_folder, f"backmapped_{frame_index}.pdb")
+        backmapped_filename = os.path.join(self.output_folder, f"{prefix}.backmapped_{frame_index}.pdb")
         with mda.Writer(backmapped_filename, n_atoms=backmapped_u.atoms.n_atoms) as w:
             w.write(backmapped_sel.atoms)
         
@@ -355,7 +359,7 @@ class HierarchicalBackmapping:
             from herobm.utils.pdbFixer import fixPDB
             from herobm.utils.minimisation import minimise_impl
             topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
-            backmapped_minimised_filename = os.path.join(output_folder, f"backmapped_min_{frame_index}.pdb")
+            backmapped_minimised_filename = os.path.join(self.output_folder, f"{prefix}.backmapped_min_{frame_index}.pdb")
         
             minimise_impl(
                 topology,
