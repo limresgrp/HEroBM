@@ -40,7 +40,7 @@ def build_dataset(args_dict):
     
     config_update_text = f'''Update the training configuration file with the following snippet (excluding quotation marks):
     \n"\nout_irreps: {mapping.bead_reconstructed_size}x1o\n\ntype_names:\n'''
-    for bt in [x[0] for x in sorted(mapping.bead_types_dict.items(), key=lambda x: x[1])]:
+    for bt in {x[1]: x[0] for x in sorted(mapping.bead_types_dict.items(), key=lambda x: x[1])}.values():
         config_update_text += f'- {bt}\n'
     config_update_text += '"'
     print(config_update_text)
