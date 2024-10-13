@@ -15,8 +15,6 @@ from herobm.mapper.hierarchical_mapper import HierarchicalMapper
 from herobm.utils import DataDict
 from herobm.utils.geometry import get_RMSD, set_phi, set_psi
 from herobm.utils.backbone import MinimizeEnergy
-# from herobm.utils.pdbFixer import fixPDB
-# from herobm.utils.minimisation import minimise_impl
 
 from geqtrain.utils import Config
 from geqtrain.utils._global_options import _set_global_options
@@ -352,20 +350,22 @@ class HierarchicalBackmapping:
             w.write(backmapped_sel.atoms)
         
         backmapped_minimised_filename = None
-        # # # # Write pdb of minimised structure
-        # # # topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
-        # # # backmapped_minimised_filename = os.path.join(output_folder, f"backmapped_min_{frame_index}.pdb")
+        # Write pdb of minimised structure
+        try:
+            from herobm.utils.pdbFixer import fixPDB
+            from herobm.utils.minimisation import minimise_impl
+            topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
+            backmapped_minimised_filename = os.path.join(output_folder, f"backmapped_min_{frame_index}.pdb")
         
-        # # # try:
-        # # #     minimise_impl(
-        # # #         topology,
-        # # #         positions,
-        # # #         backmapped_minimised_filename,
-        # # #         restrain_atoms=[],
-        # # #         tolerance=tolerance,
-        # # #     )
-        # # # except Exception as e:
-        # # #     pass
+            minimise_impl(
+                topology,
+                positions,
+                backmapped_minimised_filename,
+                restrain_atoms=[],
+                tolerance=tolerance,
+            )
+        except Exception as e:
+            pass
 
         print(f"Finished. Time: {time.time() - t}")
 
@@ -478,7 +478,7 @@ def run_backmapping_inference(
 ):
 
     bead_pos = dataset[DataDict.BEAD_POSITION][0]
-    bead_types = dataset[DataDict.BEAD_TYPES] + 1 # + 1 because during training there is also the undefined type, which is 0
+    bead_types = dataset[DataDict.BEAD_TYPES]
     bead_residcs = torch.from_numpy(dataset[DataDict.BEAD_RESIDCS]).long()
     bead_pos = torch.from_numpy(bead_pos).float()
     bead_types = torch.from_numpy(bead_types).long().reshape(-1, 1)
