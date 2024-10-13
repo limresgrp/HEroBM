@@ -14,8 +14,6 @@ torch.set_default_dtype(torch.float32)
 # python build_dataset.py -m ca -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/ca.2.9k/train
 # python build_dataset.py -m martini3 -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/martini3.2.9k/train
 
-YOUR_PATH_TO_DATA_FOLDER = "/storage_common/angiod/"
-
 
 def to_npz(dataset):
     return {
@@ -31,6 +29,7 @@ def to_npz(dataset):
     }
 
 def build_dataset(args_dict):
+    print("Building dataset...")
     mapping = HierarchicalMapper(args_dict=args_dict)
     
     for m in mapping():
@@ -40,11 +39,12 @@ def build_dataset(args_dict):
         print(f'File {filename} saved!')
     
     config_update_text = f'''Update the training configuration file with the following snippet (excluding quotation marks):
-    \n"\neq_out_irreps: {mapping.bead_reconstructed_size}x1o\n\ntype_names:\n'''
+    \n"\nout_irreps: {mapping.bead_reconstructed_size}x1o\n\ntype_names:\n'''
     for bt in [x[0] for x in sorted(mapping.bead_types_dict.items(), key=lambda x: x[1])]:
         config_update_text += f'- {bt}\n'
     config_update_text += '"'
     print(config_update_text)
+    print("Success!")
 
 def parse_command_line(args=None):
     parser = argparse.ArgumentParser(

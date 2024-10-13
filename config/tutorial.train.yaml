@@ -1,0 +1,265 @@
+# - general - #
+root: results/A2A
+run_name: A2A.martini3
+experiment_description: "A2A dataset using Martini 3.0 CG."
+
+seed: 0
+dataset_seed: 0
+append: true
+default_dtype: float32
+
+# --- M O D E L --- #
+
+# -- network --
+model_builders:
+  - herobm.backmapping.model.Model
+  - herobm.backmapping.model.HierarchicalReconstruction
+
+# - cutoffs - #
+r_max: 7.0
+
+# - radial basis - #
+edge_radial_attrs_basis: geqtrain.nn.BesselBasisVec
+TanhCutoff_n: 6
+num_basis: 12
+
+# - symmetry - #
+l_max: 3
+parity: o3_full
+
+# - general - #
+# avg_num_neighbors: 30
+normalize_b2a_rel_vec: true
+use_weight_norm: false
+
+# - interaction layers - #
+num_layers: 2
+latent_dim: 128
+env_embed_multiplicity: 32
+
+two_body_latent_mlp_latent_dimensions: [512]
+two_body_latent_mlp_nonlinearity: silu
+
+latent_mlp_latent_dimensions: [512]
+latent_mlp_nonlinearity: silu
+
+env_embed_mlp_latent_dimensions: [512]
+env_embed_mlp_nonlinearity: silu
+
+# - attention - #
+interaction_use_attention: true
+interaction_head_dim: 64
+
+# - products - #
+interaction_use_mace_product: false
+
+# - pooling layer - #
+pooling_use_attention: false
+pooling_head_dim: 64
+pooling_mlp_latent_dimensions: [512]
+
+# - head - #
+head_eq_has_internal_weights: false
+head_mlp_latent_dimensions: [512]
+head_mlp_nonlinearity: silu
+head_has_bias: false
+
+# - end layers - #
+
+out_irreps: '5x1o' # Use the output irreps suggested when building the dataset
+
+# --- D A T A S E T --- #
+
+# - train - #
+dataset_list:
+  - dataset: npz
+    dataset_input: data/tutorial/A2A/npz # Folder containing all npz files to load as dataset
+    key_mapping:
+      bead_types: node_types
+      bead_pos: pos
+      bead2atom_rel_vectors: node_otuput
+      bead2atom_reconstructed_idcs: bead2atom_reconstructed_idcs
+      bead2atom_reconstructed_weights: bead2atom_reconstructed_weights
+      lvl_idcs_mask: lvl_idcs_mask
+      lvl_idcs_anchor_mask: lvl_idcs_anchor_mask
+      bond_idcs: atom_bond_idx
+      angle_idcs: atom_angle_idx
+      atom_pos: atom_pos
+
+# - register fields - #
+
+node_fields:
+  - node_output
+  - bead2atom_reconstructed_idcs
+  - bead2atom_reconstructed_weights
+  - lvl_idcs_mask
+  - lvl_idcs_anchor_mask
+
+extra_fields:
+  - atom_pos
+
+type_names: # Use the type names suggested when building the dataset
+  - ACE_RE
+  - SER_BB
+  - THR_BB
+  - TRP_BB
+  - TYR_BB
+  - VAL_BB
+  - ALA_BB
+  - ARG_BB
+  - ASN_BB
+  - GLU_BB
+  - ASP_BB
+  - CYS_BB
+  - CYX_BB
+  - GLN_BB
+  - GLY_BB
+  - HID_BB
+  - HIE_BB
+  - HIS_BB
+  - HSD_BB
+  - HSE_BB
+  - ILE_BB
+  - LEU_BB
+  - LYS_BB
+  - MET_BB
+  - PHE_BB
+  - PRO_BB
+  - ALA_SC1
+  - ARG_SC1
+  - ARG_SC2
+  - ASN_SC1
+  - ASP_SC1
+  - CYS_SC1
+  - CYX_SC1
+  - GLN_SC1
+  - GLU_SC1
+  - HID_SC1
+  - HSD_SC1
+  - HID_SC2
+  - HSD_SC2
+  - HID_SC3
+  - HSD_SC3
+  - HIE_SC1
+  - HSE_SC1
+  - HIE_SC2
+  - HSE_SC2
+  - HIE_SC3
+  - HSE_SC3
+  - HIS_SC1
+  - HIS_SC2
+  - HIS_SC3
+  - ILE_SC1
+  - LEU_SC1
+  - LYS_SC1
+  - LYS_SC2
+  - MET_SC1
+  - NME_RE
+  - PHE_SC1
+  - PHE_SC2
+  - PHE_SC3
+  - PRO_SC1
+  - SER_SC1
+  - THR_SC1
+  - TRP_SC1
+  - TRP_SC2
+  - TRP_SC3
+  - TRP_SC4
+  - TRP_SC5
+  - TYR_SC1
+  - TYR_SC2
+  - TYR_SC3
+  - TYR_SC4
+  - VAL_SC1
+
+# - define node attributes - #
+node_attributes:
+  node_types: # this kword must match the red kword in key_mapping
+    embedding_dimensionality: 64
+    fixed: true # if equal for each frame, if so they must not have the batch dim in the npz
+  bead2atom_reconstructed_idcs:
+    fixed: true
+  bead2atom_reconstructed_weights:
+    fixed: true
+  lvl_idcs_mask:
+    fixed: true
+  lvl_idcs_anchor_mask:
+    fixed: true
+
+# - define extra attributes - #
+extra_attributes:
+  atom_bond_idx:
+    fixed: true
+  atom_angle_idx:
+    fixed: true
+
+target_names: ['atom_pos']
+target_key: atom_pos
+
+# --- L O S S --- #
+
+loss_coeffs:
+  - atom_pos:              # Loss on reconstructed atoms RMSD
+    - .5
+    - MSELoss
+    - ignore_nan: true
+  - atom_pos:              # Loss on bond and angle values of reconstructed atoms
+    - .5
+    - herobm.backmapping.train.InvariantsLoss
+    - ignore_nan: true
+      ignore_zeroes: true
+
+# --- M E T R I C S --- #
+
+metrics_components:
+  - atom_pos: # Loss on reconstructed atoms RMSD
+    - herobm.backmapping.train.RMSDLoss
+    - ignore_nan: true
+
+# --- L O G G I N G --- #
+
+verbose: info
+log_batch_freq: 100
+wandb: false
+
+# --- T R A I N I N G --- #
+
+batch_size: 1
+validation_batch_size: 1
+dataloader_num_workers: 2
+
+# Configure maximum batch sizes to avoid GPU memory errors. This parameters have to be configured according to your GPU RAM #
+skip_chunking: true   # If even 1 batch does not fit in you GPU, set this to false and modify 'batch_max_atoms' to make the chunked dataset fit
+# batch_max_atoms: 3000 # Limit the maximum number of nodes of a graph to be loaded on memory in a single batch
+
+max_epochs: 10
+learning_rate: 1.0e-4
+# noise: 0.05
+train_val_split: random
+shuffle: true
+metrics_key: validation_loss
+
+# - optimizer - #
+optimizer_name: AdamW
+optimizer_params:
+  amsgrad: false
+  betas: !!python/tuple
+  - 0.9
+  - 0.999
+  eps: 1.0e-08
+  weight_decay: 1.e-5
+# max_gradient_norm: 1.
+# use_grokfast: true
+sanitize_gradients: true
+
+# - scheduler - #
+lr_scheduler_name: ReduceLROnPlateau
+lr_scheduler_patience: 1
+lr_scheduler_factor: 0.5
+
+# - early stopping - #
+early_stopping_lower_bounds:
+  LR: 1.0e-5
+
+early_stopping_patiences:
+  validation_loss: 15
