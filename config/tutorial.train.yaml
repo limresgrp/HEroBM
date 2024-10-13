@@ -99,78 +99,48 @@ extra_fields:
   - atom_pos
 
 type_names: # Use the type names suggested when building the dataset
-  - ACE_RE
-  - SER_BB
-  - THR_BB
-  - TRP_BB
-  - TYR_BB
-  - VAL_BB
-  - ALA_BB
-  - ARG_BB
-  - ASN_BB
-  - GLU_BB
-  - ASP_BB
-  - CYS_BB
-  - CYX_BB
-  - GLN_BB
-  - GLY_BB
-  - HID_BB
-  - HIE_BB
-  - HIS_BB
-  - HSD_BB
-  - HSE_BB
-  - ILE_BB
-  - LEU_BB
-  - LYS_BB
-  - MET_BB
-  - PHE_BB
-  - PRO_BB
-  - ALA_SC1
-  - ARG_SC1
-  - ARG_SC2
-  - ASN_SC1
-  - ASP_SC1
-  - CYS_SC1
-  - CYX_SC1
-  - GLN_SC1
-  - GLU_SC1
-  - HID_SC1
-  - HSD_SC1
-  - HID_SC2
-  - HSD_SC2
-  - HID_SC3
-  - HSD_SC3
-  - HIE_SC1
-  - HSE_SC1
-  - HIE_SC2
-  - HSE_SC2
-  - HIE_SC3
-  - HSE_SC3
-  - HIS_SC1
-  - HIS_SC2
-  - HIS_SC3
-  - ILE_SC1
-  - LEU_SC1
-  - LYS_SC1
-  - LYS_SC2
-  - MET_SC1
-  - NME_RE
-  - PHE_SC1
-  - PHE_SC2
-  - PHE_SC3
-  - PRO_SC1
-  - SER_SC1
-  - THR_SC1
-  - TRP_SC1
-  - TRP_SC2
-  - TRP_SC3
-  - TRP_SC4
-  - TRP_SC5
-  - TYR_SC1
-  - TYR_SC2
-  - TYR_SC3
-  - TYR_SC4
-  - VAL_SC1
+- ACE_RE
+- BB
+- ALA_SC1
+- ARG_SC1
+- ARG_SC2
+- ASN_SC1
+- ASP_SC1
+- CYS_SC1
+- CYX_SC1
+- GLN_SC1
+- GLU_SC1
+- HSD_SC1
+- HSD_SC2
+- HSD_SC3
+- HSE_SC1
+- HSE_SC2
+- HSE_SC3
+- HIS_SC1
+- HIS_SC2
+- HIS_SC3
+- ILE_SC1
+- LEU_SC1
+- LYS_SC1
+- LYS_SC2
+- MET_SC1
+- NME_RE
+- PHE_SC1
+- PHE_SC2
+- PHE_SC3
+- PRO_SC1
+- SER_SC1
+- THR_SC1
+- TRP_SC1
+- TRP_SC2
+- TRP_SC3
+- TRP_SC4
+- TRP_SC5
+- TYR_SC1
+- TYR_SC2
+- TYR_SC3
+- TYR_SC4
+- VAL_SC1
 
 # - define node attributes - #
 node_attributes:
