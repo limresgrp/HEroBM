@@ -35,7 +35,7 @@ def build_dataset(args_dict):
     for m in mapping():
         p = Path(m.input_filename)
         filename = str(Path(args_dict.get('output', p.parent), p.stem + '.data' + '.npz'))
-        m.save_npz(filename=filename, pos_unit='Angstrom')
+        m.save_npz(filename=filename, from_pos_unit='Angstrom', to_pos_unit='Angstrom')
         print(f'File {filename} saved!')
     
     config_update_text = f'''Update the training configuration file with the following snippet (excluding quotation marks):
@@ -111,7 +111,7 @@ def parse_command_line(args=None):
         "--trajslice",
         help="Specify a slice of the total number of frames.\n" +
              "Only the sliced frames will be backmapped.",
-        type=int,
+        type=str,
     )
     parser.add_argument(
         "-e",
