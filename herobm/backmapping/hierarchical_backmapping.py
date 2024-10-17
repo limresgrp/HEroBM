@@ -1,16 +1,17 @@
 import os
+import tempfile
 import time
-import yaml
 import torch
+import shutil
 
 import numpy as np
 import MDAnalysis as mda
 
 import warnings
+
 warnings.filterwarnings("ignore")
 
 from os.path import basename
-from pathlib import Path
 from typing import Dict, List, Optional
 from MDAnalysis.analysis import align
 
@@ -19,13 +20,13 @@ from herobm.mapper.hierarchical_mapper import HierarchicalMapper
 from herobm.utils import DataDict
 from herobm.utils.geometry import get_RMSD, set_phi, set_psi
 from herobm.utils.backbone import MinimizeEnergy
+from herobm.utils.io import replace_words_in_file
 
 from geqtrain.utils import Config
-from geqtrain.utils._global_options import _set_global_options
-from geqtrain.train import Trainer
 from geqtrain.data import AtomicData, AtomicDataDict
-from geqtrain.scripts.evaluate import run_inference
-from geqtrain.scripts.deploy import load_deployed_model, R_MAX_KEY
+from geqtrain.data._build import dataset_from_config
+from geqtrain.data.dataloader import DataLoader
+from geqtrain.scripts.evaluate import load_model, infer
 
 
 class HierarchicalBackmapping:
@@ -41,54 +42,25 @@ class HierarchicalBackmapping:
 
     def __init__(self, args_dict) -> None:
         
-        ### Parse Input ###
-        
+        # Parse Input
         self.mapping = HierarchicalMapper(args_dict=args_dict)
         self.config = self.mapping.config
 
         self.output_folder = self.config.get("output")
         self.device = self.config.get("device", "cpu")
 
-        ### Load Model ###
-            
-        print("Loading model...")
+        # Load model
+        self.model, model_config = load_model(self.config.get("model"), self.config.get("device"))
+        self.config.update(
+            {
+                k: v
+                for k, v in model_config.items()
+                if k not in self.config
+                and k not in "skip_chunking"
+            }
+        )
 
-        model = self.config.get("model", None)
-        if model is None:
-            raise Exception("You did not provide the 'model' input parameter.")
-        if Path(model).suffix not in [".yaml", ".json"]:
-            try:
-                deployed_model = os.path.join(os.path.dirname(__file__), '..', '..', deployed_model)
-                self.model, metadata = load_deployed_model(
-                    deployed_model,
-                    device=self.config.get("device"),
-                    set_global_options=True,  # don't warn that setting
-                )
-                # the global settings for a deployed model are set by
-                # set_global_options in the call to load_deployed_model above
-                self.model_r_max = float(metadata[R_MAX_KEY])
-                print("Loaded deployed model")
-            except Exception as e:
-                raise Exception(
-                    f"""Could not load {model}."""
-                ) from e
-        else:
-            model_config_file = os.path.join(os.path.dirname(__file__), '..', '..', model)
-            model_config: Optional[Dict[str, str]] = yaml.load(
-                Path(model_config_file).read_text(), Loader=yaml.Loader
-            ) if model_config_file is not None else None
-            self.model, training_model_config = load_model(
-                model_dir=None,
-                model_config=model_config,
-                config=self.config,
-            )
-            self.model_r_max = float(training_model_config[R_MAX_KEY])
-            print("Loaded model from training session.")
-        
-        self.model.eval()
-
-        ### Initialize energy minimiser for reconstructing backbone ###
-
+        # Initialize energy minimiser for reconstructing backbone
         self.minimiser = MinimizeEnergy()
 
         ### ------------------------------------------------------- ###
@@ -96,24 +68,6 @@ class HierarchicalBackmapping:
     @property
     def num_structures(self):
         return len(self.mapping.input_filenames)
-    
-    def get_backmapping_dataset(self, frame_index: Optional[int] = None):
-        if frame_index is None:
-            return self.mapping.dataset
-        backmapping_dataset = self.mapping.dataset
-        for k in [
-            DataDict.ATOM_POSITION,
-            DataDict.ATOM_FORCES,
-            DataDict.BEAD_POSITION,
-            DataDict.BB_ATOM_POSITION,
-            DataDict.BB_PHIPSI,
-            DataDict.CA_ATOM_POSITION,
-            DataDict.CA_BEAD_POSITION,
-            DataDict.BEAD2ATOM_RELATIVE_VECTORS,
-        ]:
-            if k in backmapping_dataset:
-                backmapping_dataset[k] = backmapping_dataset[k][frame_index:frame_index+1]
-        return backmapping_dataset
     
     def optimise_backbone(
             self,
@@ -163,41 +117,87 @@ class HierarchicalBackmapping:
         for mapping in self.mapping():
             yield mapping
 
-    def backmap(self, optimise_backbone: bool = True, tolerance: float = 50., frame_idcs: Optional[List[int]] = None, max_num: int = None):
+    def backmap(self, optimise_backbone: bool = True, tolerance: float = 50., frame_idcs: Optional[List[int]] = None):
+        
         backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames = [], [], [], []
         for input_filenames_index, mapping in enumerate(self.map()):
+            
             if frame_idcs is None:
                 frame_idcs = range(0, len(mapping))
             n_frames = max(frame_idcs) + 1
 
-            backmapped_u = None
-            for frame_index in frame_idcs:
-                try:
-                    backmapping_dataset = self.backmap_impl(
-                        frame_index=frame_index,
-                        optimise_backbone=optimise_backbone,
-                        optimise_dihedrals=False,
-                    )
+            with tempfile.TemporaryDirectory() as tmp:
+                npz_filename = os.path.join(tmp, 'data.npz')
+                mapping.save_npz(filename=npz_filename, from_pos_unit='Angstrom', to_pos_unit='Angstrom')
+                yaml_filename = os.path.join(tmp, 'test.yaml')
+                shutil.copyfile(os.path.join(os.path.dirname(__file__), 'template.test.yaml'), yaml_filename)
+                replace_words_in_file(
+                    yaml_filename,
+                    {
+                        "{ROOT}": self.output_folder,
+                        "{TEST_DATASET_INPUT}": npz_filename,
+                    }
+                )
+                test_config = Config.from_file(yaml_filename, defaults={})
+                test_config.pop('type_names')
+                test_config.pop('num_types')
+                self.config.update(test_config)
+
+                dataset = dataset_from_config(self.config, prefix="test_dataset")
+
+                dataloader = DataLoader(
+                    dataset=dataset,
+                    shuffle=False,
+                    batch_size=1,
+                )
+
+                results = {
+                    DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED: [],
+                    DataDict.ATOM_POSITION_PRED: [],
+                }
+                def collect_chunks(pbar, out, ref_data, **kwargs):
+                    rvp_list = results.get(DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED)
+                    rvp_list.append(out[AtomicDataDict.NODE_OUTPUT_KEY].cpu().numpy())
+                    app_list = results.get(DataDict.ATOM_POSITION_PRED)
+                    app_list.append(np.expand_dims(out[DataDict.ATOM_POSITION].cpu().numpy(), axis=0))
+                
+                _backmapped_u = [None]
+
+                def save_batch(batch_index, **kwargs):
+                    backmapping_dataset = self.mapping.dataset
+                    backmapping_dataset.update({
+                        DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED: np.concatenate(results[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED], axis=0),
+                        DataDict.ATOM_POSITION_PRED: np.nanmean(np.stack(results[DataDict.ATOM_POSITION_PRED], axis=0), axis=0),
+                    })
 
                     backmapped_u, backmapped_filename, backmapped_minimised_filename, true_filename, cg_filename = self.to_pdb(
                         backmapping_dataset=backmapping_dataset,
                         input_filenames_index=input_filenames_index,
                         n_frames=n_frames,
-                        frame_index=frame_index,
-                        backmapped_u=backmapped_u,
+                        frame_index=batch_index,
+                        backmapped_u=_backmapped_u[0],
                         save_CG=True,
                         tolerance=tolerance,
                     )
+
+                    _backmapped_u[0] = backmapped_u
                     backmapped_filenames.append(backmapped_filename)
                     backmapped_minimised_filenames.append(backmapped_minimised_filename)
                     if true_filename is not None:
                         true_filenames.append(true_filename)
                     cg_filenames.append(cg_filename)
-                except Exception as e:
-                    print(e)
-                    print("Skipping.")
-            if max_num is not None and input_filenames_index >= max_num - 1:
-                break
+
+                    results[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED].clear()
+                    results[DataDict.ATOM_POSITION_PRED].clear()
+
+                infer(
+                    dataloader,
+                    self.model,
+                    self.device,
+                    chunk_callbacks=[collect_chunks],
+                    batch_callbacks=[save_batch],
+                    **{k: v for k, v in self.config.items() if k not in ['model', 'device']},
+                )
         
         return backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames
     
@@ -262,49 +262,6 @@ class HierarchicalBackmapping:
         coords = set_phi(coords, phi_idcs, phi_values)
         coords = set_psi(coords, psi_idcs, psi_values)
 
-    # def rotate_dihedrals_to_minimize_energy(self, minimiser_data: Dict, dataset: Dict):
-    #     pred_pos = minimiser_data["coords"][0].detach().clone()
-    #     ca_pos = pred_pos[np.isin(dataset[DataDict.ATOM_NAMES], ['CA'])]
-
-    #     pi_quarters_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi/4)
-    #     pi_halves_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi/2)
-    #     pi_three_quarters_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi*3/4)
-    #     pi_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi)
-    #     minus_pi_quarters_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=-np.pi/4)
-    #     minus_pi_halves_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=-np.pi/2)
-    #     minus_pi_three_quarters_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=-np.pi*3/4)
-    #     all_rotated_pos = [
-    #         pi_quarters_rotated_pred_pos,
-    #         pi_halves_rotated_pred_pos,
-    #         pi_three_quarters_rotated_pred_pos,
-    #         pi_rotated_pred_pos,
-    #         minus_pi_quarters_rotated_pred_pos,
-    #         minus_pi_halves_rotated_pred_pos,
-    #         minus_pi_three_quarters_rotated_pred_pos,
-    #     ]
-
-    #     # Rotate and evaluate one residue at a time
-    #     updated_pos = pred_pos.clone()
-    #     baseline_energy = self.minimiser.evaluate_dihedral_energy(minimiser_data, pos=pred_pos)
-    #     for x in range(len(ca_pos)-1):
-    #         temp_updated_pos = updated_pos.clone()
-    #         C_id = x*4+2
-    #         N_id = x*4+4
-    #         energies = []
-    #         for rotated_pos in all_rotated_pos:
-    #             temp_updated_pos[C_id] = rotated_pos[C_id]
-    #             temp_updated_pos[N_id] = rotated_pos[N_id]
-    #             energies.append(self.minimiser.evaluate_dihedral_energy(minimiser_data, pos=temp_updated_pos))
-    #         min_energy_id = torch.stack(energies).argmin()
-    #         best_energy = energies[min_energy_id]
-    #         if best_energy < baseline_energy:
-    #             baseline_energy = best_energy
-    #             updated_pos[C_id] = all_rotated_pos[min_energy_id][C_id]
-    #             updated_pos[N_id] = all_rotated_pos[min_energy_id][N_id]
-
-    #     minimiser_data["coords"] = updated_pos
-    #     return minimiser_data
-    
     def to_pdb(
             self,
             backmapping_dataset: Dict,
@@ -374,7 +331,6 @@ class HierarchicalBackmapping:
         print(f"Finished. Time: {time.time() - t}")
 
         return backmapped_u, backmapped_filename, backmapped_minimised_filename, true_filename, cg_filename
-
 
 def build_CG(
     backmapping_dataset: dict,
@@ -450,25 +406,6 @@ def build_universe(
 
     return backmapped_u
 
-def load_model(config: Dict, model_dir: Optional[Path] = None, model_config: Optional[Dict] = None):
-    if model_dir is None:
-        assert model_config is not None, "You should provide either 'model_config_file' or 'model_dir' in the configuration file"
-        model_dir = os.path.join(model_config.get("root"), model_config.get("fine_tuning_run_name", model_config.get("run_name")))
-    model_name = config.get("modelweights", "best_model.pth")
-    
-    global_config = os.path.join(model_dir, "config.yaml")
-    global_config = Config.from_file(str(global_config), defaults={})
-    _set_global_options(global_config)
-    del global_config
-
-    model, training_model_config = Trainer.load_model_from_training_session(
-        traindir=model_dir,
-        model_name=model_name,
-        device=config.get('device', 'cpu')
-    )
-
-    return model, training_model_config
-    
 def get_edge_index(positions: torch.Tensor, r_max: float):
     dist_matrix = torch.norm(positions[:, None, ...] - positions[None, ...], dim=-1).fill_diagonal_(torch.inf)
     return torch.argwhere(dist_matrix <= r_max).T.long()
@@ -660,6 +597,49 @@ def update_minimiser_data(minimiser_data: Dict, dataset: Dict):
     minimiser_data.update(data)
 
     return minimiser_data
+
+    # def rotate_dihedrals_to_minimize_energy(self, minimiser_data: Dict, dataset: Dict):
+    #     pred_pos = minimiser_data["coords"][0].detach().clone()
+    #     ca_pos = pred_pos[np.isin(dataset[DataDict.ATOM_NAMES], ['CA'])]
+
+    #     pi_quarters_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi/4)
+    #     pi_halves_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi/2)
+    #     pi_three_quarters_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi*3/4)
+    #     pi_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=np.pi)
+    #     minus_pi_quarters_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=-np.pi/4)
+    #     minus_pi_halves_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=-np.pi/2)
+    #     minus_pi_three_quarters_rotated_pred_pos = rotate_residue_dihedrals(pos=pred_pos, ca_pos=ca_pos, angle=-np.pi*3/4)
+    #     all_rotated_pos = [
+    #         pi_quarters_rotated_pred_pos,
+    #         pi_halves_rotated_pred_pos,
+    #         pi_three_quarters_rotated_pred_pos,
+    #         pi_rotated_pred_pos,
+    #         minus_pi_quarters_rotated_pred_pos,
+    #         minus_pi_halves_rotated_pred_pos,
+    #         minus_pi_three_quarters_rotated_pred_pos,
+    #     ]
+
+    #     # Rotate and evaluate one residue at a time
+    #     updated_pos = pred_pos.clone()
+    #     baseline_energy = self.minimiser.evaluate_dihedral_energy(minimiser_data, pos=pred_pos)
+    #     for x in range(len(ca_pos)-1):
+    #         temp_updated_pos = updated_pos.clone()
+    #         C_id = x*4+2
+    #         N_id = x*4+4
+    #         energies = []
+    #         for rotated_pos in all_rotated_pos:
+    #             temp_updated_pos[C_id] = rotated_pos[C_id]
+    #             temp_updated_pos[N_id] = rotated_pos[N_id]
+    #             energies.append(self.minimiser.evaluate_dihedral_energy(minimiser_data, pos=temp_updated_pos))
+    #         min_energy_id = torch.stack(energies).argmin()
+    #         best_energy = energies[min_energy_id]
+    #         if best_energy < baseline_energy:
+    #             baseline_energy = best_energy
+    #             updated_pos[C_id] = all_rotated_pos[min_energy_id][C_id]
+    #             updated_pos[N_id] = all_rotated_pos[min_energy_id][N_id]
+
+    #     minimiser_data["coords"] = updated_pos
+    #     return minimiser_data
 
 # def rotate_residue_dihedrals(pos: torch.TensorType, ca_pos: torch.TensorType, angle: float):
 #     rot_axes = ca_pos[1:] - ca_pos[:-1]

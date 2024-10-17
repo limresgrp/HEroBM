@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Dict, List
+from typing import List
 from cgmap.mapping import Mapper
 from herobm.utils import DataDict
 import pandas as pd
