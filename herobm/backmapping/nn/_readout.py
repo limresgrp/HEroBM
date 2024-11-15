@@ -6,7 +6,6 @@ from geqtrain.data import AtomicDataDict
 from geqtrain.nn import GraphModuleMixin, ScalarMLPFunction
 from geqtrain.nn.allegro import Linear
 from geqtrain.nn.mace.irreps_tools import reshape_irreps, inverse_reshape_irreps
-from geqtrain.utils._global_options import DTYPE
 
 
 @compile_mode("script")
@@ -107,7 +106,7 @@ class ReadoutModule(GraphModuleMixin, torch.nn.Module):
         features = data[self.field]
         out_features = torch.zeros(
             (len(features), self.out_irreps_dim),
-            dtype=DTYPE,
+            dtype=torch.float32,
             device=features.device
         )
 

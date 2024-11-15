@@ -22,7 +22,6 @@ from geqtrain.nn.allegro import (
     MakeWeightedChannels,
 )
 from geqtrain.utils.tp_utils import SCALAR, tp_path_exists
-from geqtrain.utils._global_options import DTYPE
 from geqtrain.nn.cutoffs import tanh_cutoff
 from geqtrain.nn._film import FiLMFunction
 
@@ -237,7 +236,7 @@ class InteractionModule(GraphModuleMixin, torch.nn.Module):
         # note that the sigmoid of these are the factor _between_ layers
         # so the first entry is the ratio for the latent resnet of the first and second layers, etc.
         # e.g. if there are 3 layers, there are 2 ratios: l1:l2, l2:l3
-        self._latent_resnet_update_params = torch.nn.Parameter(torch.zeros(self.num_layers, dtype=DTYPE))
+        self._latent_resnet_update_params = torch.nn.Parameter(torch.zeros(self.num_layers, dtype=torch.float32))
 
         self.register_buffer("per_layer_cutoffs", torch.full((num_layers + 1,), r_max))
         self.register_buffer("_zero", torch.as_tensor(0.0))
@@ -323,13 +322,13 @@ class InteractionModule(GraphModuleMixin, torch.nn.Module):
         # Initialize state
         out_features = torch.zeros(
             (num_edges, self.out_multiplicity, self.out_feat_elems),
-            dtype=DTYPE,
+            dtype=torch.float32,
             device=edge_attr.device
         )
 
         latents = torch.zeros(
             (num_edges, self.latent_dim),
-            dtype=DTYPE,
+            dtype=torch.float32,
             device=edge_attr.device,
         )
         active_edges = torch.arange(

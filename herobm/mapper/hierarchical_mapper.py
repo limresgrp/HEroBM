@@ -2,6 +2,7 @@ import numpy as np
 from typing import List
 from cgmap.mapping import Mapper
 from herobm.utils import DataDict
+from herobm.mapper.bead import HeroBMBeadMappingAtomSettings
 import pandas as pd
 
 class HierarchicalMapper(Mapper):
@@ -67,6 +68,9 @@ class HierarchicalMapper(Mapper):
     def __init__(self, args_dict) -> None:
         super().__init__(args_dict=args_dict)
         self.noinvariants = args_dict.get('noinvariants', False)
+    
+    def _load_mappings(self, bmas_class=HeroBMBeadMappingAtomSettings):
+        super(HierarchicalMapper, self)._load_mappings(bmas_class=bmas_class)
 
     def _compute_bead2atom_feats(self):
         self._bead2atom_idcs = -np.ones((self.num_beads, self.bead_all_size), dtype=int)
