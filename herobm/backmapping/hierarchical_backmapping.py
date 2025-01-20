@@ -18,12 +18,12 @@ from MDAnalysis.analysis import align
 from herobm.mapper.hierarchical_mapper import HierarchicalMapper
 # from herobm.backmapping.nn.quaternions import get_quaternions, qv_mult
 from herobm.utils import DataDict
-from herobm.utils.geometry import get_RMSD, set_phi, set_psi
+from herobm.utils.geometry import set_phi, set_psi
 from herobm.utils.backbone import MinimizeEnergy
 from herobm.utils.io import replace_words_in_file
 
 from geqtrain.utils import Config
-from geqtrain.data import AtomicData, AtomicDataDict
+from geqtrain.data import AtomicDataDict
 from geqtrain.data._build import dataset_from_config
 from geqtrain.data.dataloader import DataLoader
 from geqtrain.scripts.evaluate import load_model, infer
@@ -139,8 +139,8 @@ class HierarchicalBackmapping:
                     }
                 )
                 test_config = Config.from_file(yaml_filename, defaults={})
-                test_config.pop('type_names')
-                test_config.pop('num_types')
+                test_config.pop('type_names', None)
+                test_config.pop('num_types', None)
                 self.config.update(test_config)
 
                 dataset = dataset_from_config(self.config, prefix="test_dataset")
@@ -155,7 +155,7 @@ class HierarchicalBackmapping:
                     DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED: [],
                     DataDict.ATOM_POSITION_PRED: [],
                 }
-                def collect_chunks(pbar, out, ref_data, **kwargs):
+                def collect_chunks(batch_index, chunk_index, out, ref_data, pbar, **kwargs):
                     rvp_list = results.get(DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED)
                     rvp_list.append(out[AtomicDataDict.NODE_OUTPUT_KEY].cpu().numpy())
                     app_list = results.get(DataDict.ATOM_POSITION_PRED)
@@ -201,56 +201,6 @@ class HierarchicalBackmapping:
         
         return backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames
     
-    def backmap_impl(
-        self,
-        frame_index: int,
-        verbose: bool = False,
-        optimise_backbone: Optional[bool] = None,
-        optimise_dihedrals: bool = False,
-    ):
-        backmapping_dataset = self.get_backmapping_dataset(frame_index)
-
-        print("Predicting distance vectors using HEroBM ENN & reconstructing atomistic structure...")
-        t = time.time()
-
-        # Predict dihedrals and bead2atom relative vectors
-        backmapping_dataset = run_backmapping_inference(
-            dataset=backmapping_dataset,
-            model=self.model,
-            r_max=self.model_r_max,
-            device=self.device,
-            batch_max_atoms=self.config.get("batch_max_atoms", 1000),
-        )
-        
-        print(f"Finished. Time: {time.time() - t}")
-
-        if optimise_backbone is None:
-            optimise_backbone = self.config.get("optimisebackbone", True)
-
-        if optimise_backbone:
-            print("Optimizing backbone...")
-            t = time.time()
-
-            backmapping_dataset = self.optimise_backbone(
-                backmapping_dataset=backmapping_dataset,
-                optimise_dihedrals=optimise_dihedrals,
-                verbose=verbose,
-            )
-
-            print(f"Finished. Time: {time.time() - t}")
-
-        if DataDict.ATOM_POSITION in backmapping_dataset:
-            try:
-                print(f"RMSD All: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], ignore_nan=True):4.3f} Angstrom")
-                no_bb_fltr = np.array([an not in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
-                print(f"RMSD on Side-Chains: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=no_bb_fltr, ignore_nan=True):4.3f} Angstrom")
-                bb_fltr = np.array([an in ["CA", "C", "N", "O"] for an in backmapping_dataset[DataDict.ATOM_NAMES]])
-                print(f"RMSD on Backbone: {get_RMSD(backmapping_dataset[DataDict.ATOM_POSITION_PRED], backmapping_dataset[DataDict.ATOM_POSITION], fltr=bb_fltr, ignore_nan=True):4.3f} Angstrom")
-            except:
-                pass
-        
-        return backmapping_dataset
-    
     def optimise_dihedrals(self, minimiser_data: Dict):
         coords = minimiser_data["coords"][0]
 
@@ -295,7 +245,7 @@ class HierarchicalBackmapping:
         
         # Write pdb of true atomistic structure (if present)
         true_filename = None
-        if DataDict.ATOM_POSITION in backmapping_dataset and not np.all(backmapping_dataset[DataDict.ATOM_POSITION] == 0.):
+        if DataDict.ATOM_POSITION in backmapping_dataset and not np.all(np.isnan(backmapping_dataset[DataDict.ATOM_POSITION])):
             true_sel = backmapped_u.select_atoms('all')
             true_positions = backmapping_dataset[DataDict.ATOM_POSITION][0]
             true_sel.positions = true_positions[~np.any(np.isnan(positions_pred), axis=-1)]
@@ -409,58 +359,6 @@ def build_universe(
 def get_edge_index(positions: torch.Tensor, r_max: float):
     dist_matrix = torch.norm(positions[:, None, ...] - positions[None, ...], dim=-1).fill_diagonal_(torch.inf)
     return torch.argwhere(dist_matrix <= r_max).T.long()
-
-def run_backmapping_inference(
-    dataset: Dict,
-    model: torch.nn.Module,
-    r_max: float,
-    device: str = 'cpu',
-    batch_max_atoms: int = 1000
-):
-
-    bead_pos = dataset[DataDict.BEAD_POSITION][0]
-    bead_types = dataset[DataDict.BEAD_TYPES]
-    bead_residcs = torch.from_numpy(dataset[DataDict.BEAD_RESIDCS]).long()
-    bead_pos = torch.from_numpy(bead_pos).float()
-    bead_types = torch.from_numpy(bead_types).long().reshape(-1, 1)
-    edge_index = get_edge_index(positions=bead_pos, r_max=r_max)
-    batch = torch.zeros(len(bead_pos), device=device, dtype=torch.long)
-    bead2atom_idcs = torch.from_numpy(dataset[DataDict.BEAD2ATOM_RECONSTRUCTED_IDCS]).long()
-    bead2atom_weights = torch.from_numpy(dataset[DataDict.BEAD2ATOM_RECONSTRUCTED_WEIGHTS]).float()
-    lvl_idcs_mask = torch.from_numpy(dataset[DataDict.LEVEL_IDCS_MASK]).bool()
-    lvl_idcs_anchor_mask = torch.from_numpy(dataset[DataDict.LEVEL_IDCS_ANCHOR_MASK]).long()
-    data = {
-        AtomicDataDict.POSITIONS_KEY: bead_pos,
-        f"{AtomicDataDict.POSITIONS_KEY}_slices": torch.tensor([0, len(bead_pos)]),
-        AtomicDataDict.NODE_TYPE_KEY: bead_types,
-        "edge_class": bead_residcs,
-        AtomicDataDict.EDGE_INDEX_KEY: edge_index,
-        AtomicDataDict.BATCH_KEY: batch,
-        DataDict.BEAD2ATOM_RECONSTRUCTED_IDCS: bead2atom_idcs,
-        f"{DataDict.BEAD2ATOM_RECONSTRUCTED_IDCS}_slices": torch.tensor([0, len(bead2atom_idcs)]),
-        DataDict.BEAD2ATOM_RECONSTRUCTED_WEIGHTS: bead2atom_weights,
-        f"{DataDict.BEAD2ATOM_RECONSTRUCTED_WEIGHTS}_slices": torch.tensor([0, len(bead2atom_weights)]),
-        DataDict.LEVEL_IDCS_MASK: lvl_idcs_mask,
-        f"{DataDict.LEVEL_IDCS_MASK}_slices": torch.tensor([0, len(lvl_idcs_mask)]),
-        DataDict.LEVEL_IDCS_ANCHOR_MASK: lvl_idcs_anchor_mask,
-        f"{DataDict.ATOM_POSITION}_slices": torch.tensor([0, dataset[DataDict.ATOM_POSITION].shape[1]])
-    }
-    
-    out, ref_data, batch_chunk_center_nodes, num_batch_center_nodes = run_inference(
-        model=model,
-        data=AtomicData.from_dict(data),
-        device=device,
-        cm=torch.no_grad(),
-        already_computed_nodes=None,
-        skip_chunking=True,
-    )
-
-    dataset.update({
-        DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED: out[AtomicDataDict.NODE_OUTPUT_KEY].cpu().numpy(),
-        DataDict.ATOM_POSITION_PRED: np.expand_dims(out[DataDict.ATOM_POSITION].cpu().numpy(), axis=0),
-    })
-
-    return dataset
 
 def build_minimiser_data(dataset: Dict):
 

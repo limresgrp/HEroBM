@@ -1,9 +1,9 @@
 import torch
-from torch_runstats.scatter import scatter
 from geqtrain.nn import GraphModuleMixin
 from geqtrain.data import AtomicDataDict
 from geqtrain.nn.mace.irreps_tools import reshape_irreps
 from e3nn.o3 import Irreps
+from torch_runstats.scatter import scatter
 from e3nn.util.jit import compile_mode
 
 from herobm.utils import DataDict
@@ -57,11 +57,11 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
             self.atom_type2bond_lengths = torch.nn.Parameter(torch.ones((num_types + 1, self.irreps_out[in_field].num_irreps, 1), dtype=torch.float32))
 
     def forward(self, data: AtomicDataDict.Type) -> AtomicDataDict.Type:
-        if AtomicDataDict.NOISE in data:
-            data[AtomicDataDict.POSITIONS_KEY] += data[AtomicDataDict.NOISE]
+        if AtomicDataDict.NOISE_KEY in data:
+            data[AtomicDataDict.POSITIONS_KEY] += data[AtomicDataDict.NOISE_KEY]
         data = self.func(data)
-        if AtomicDataDict.NOISE in data:
-            data[AtomicDataDict.POSITIONS_KEY] -= data[AtomicDataDict.NOISE]
+        if AtomicDataDict.NOISE_KEY in data:
+            data[AtomicDataDict.POSITIONS_KEY] -= data[AtomicDataDict.NOISE_KEY]
 
         bead2atom_relative_vectors = self.reshape(data[self.in_field])
         if torch.any(torch.isnan(bead2atom_relative_vectors)):
@@ -113,14 +113,14 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
                     reconstructed_atom_pos[mask_row, b2a_idcs[mask_row, mask_col]] = updated_pos
             
             # Re-center predicted atoms' center of mass to the actual bead position
-            # !!!!!!!!!!!!!!!!!!!!!!!!!!
-            # predicted_atoms_cm = scatter(
-            #     reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
-            #     b2a_idcs_row,
-            #     dim=0,
-            # )
-            # atom_shifts = predicted_atoms_cm - bead_pos[center_atoms]
-            # reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] -= atom_shifts[b2a_idcs_row]
+            # !!!!!!!!!!!!!!!!!!!!!!!!!! NOT WORKING WITH batch_size > 1 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+            predicted_atoms_cm = scatter(
+                reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
+                b2a_idcs_row,
+                dim=0,
+            )
+            atom_shifts = predicted_atoms_cm - bead_pos[center_atoms]
+            reconstructed_atom_pos[b2a_idcs_row, b2a_idcs[b2a_idcs_row, b2a_idcs_col]] -= atom_shifts[b2a_idcs_row]
         
         data[self.out_field] = torch.nanmean(reconstructed_atom_pos, dim=0)
         return data

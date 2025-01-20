@@ -14,6 +14,7 @@ class InvariantsLoss(SimpleLoss):
         ref: dict,
         key: str,
         mean: bool = True,
+        **kwargs,
     ):
         pred_key = pred[key]
         ref_key = ref.get(key, torch.zeros_like(pred[key], device=pred[key].device))
@@ -97,13 +98,13 @@ class RMSDLoss(SimpleLoss):
         ref: dict,
         key: str,
         mean: bool = True,
+        **kwargs,
     ):
-        ref_key, pred_key, _, not_zeroes = self.prepare(pred, ref, key)
+        pred_key, ref_key, not_nan_filter = self.prepare(pred, ref, key, **kwargs)
 
-        not_nan_zeroes = ((ref_key == ref_key).int() * (pred_key == pred_key).int() * not_zeroes)[:, 0]
-        loss = torch.sum(self.func(torch.nan_to_num(pred_key, nan=0.), torch.nan_to_num(ref_key, nan=0.)), dim=-1) * not_nan_zeroes
+        loss = torch.sum(self.func(torch.nan_to_num(pred_key, nan=0.)*not_nan_filter, torch.nan_to_num(ref_key, nan=0.)*not_nan_filter), dim=-1)
         if mean:
-            return torch.sqrt(loss.sum() / not_nan_zeroes.sum())
+            return torch.sqrt(loss.sum() / not_nan_filter.sum())
         else:
             # The accumulate_batch() method used by metrics first squares the loss, then computes the average and then extracts the root.
             # Thus, we need to pass the sqrt(loss) to obtain the RMSD as output.

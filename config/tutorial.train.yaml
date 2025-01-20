@@ -3,8 +3,8 @@ root: results/A2A
 run_name: A2A.martini3
 experiment_description: "A2A dataset using Martini 3.0 CG."
 
-seed: 0
-dataset_seed: 0
+seed: 42
+dataset_seed: 42
 append: true
 default_dtype: float32
 
@@ -12,7 +12,9 @@ default_dtype: float32
 
 # -- network --
 model_builders:
-  - herobm.backmapping.model.Model
+  # - herobm.backmapping.model.Model
+  - HeadlessNodeModel
+  - Heads
   - herobm.backmapping.model.HierarchicalReconstruction
 
 # - cutoffs - #
@@ -21,7 +23,7 @@ r_max: 7.0
 # - radial basis - #
 edge_radial_attrs_basis: geqtrain.nn.BesselBasisVec
 TanhCutoff_n: 6
-num_basis: 12
+num_basis: 8
 
 # - symmetry - #
 l_max: 3
@@ -33,40 +35,47 @@ normalize_b2a_rel_vec: true
 use_weight_norm: false
 
 # - interaction layers - #
-num_layers: 2
+num_layers: 3
 latent_dim: 128
 env_embed_multiplicity: 32
 
+two_body_latent: geqtrain.nn.ScalarMLPFunction
 two_body_latent_mlp_latent_dimensions: [512]
-two_body_latent_mlp_nonlinearity: silu
+two_body_latent_mlp_nonlinearity: swiglu
 
+latent: geqtrain.nn.ScalarMLPFunction
 latent_mlp_latent_dimensions: [512]
-latent_mlp_nonlinearity: silu
+latent_mlp_nonlinearity: swiglu
 
+env_embed: geqtrain.nn.ScalarMLPFunction
 env_embed_mlp_latent_dimensions: [512]
-env_embed_mlp_nonlinearity: silu
+env_embed_mlp_nonlinearity: swiglu
 
 # - attention - #
-interaction_use_attention: true
-interaction_head_dim: 64
+avg_num_neighbors: 30
+interaction_use_attention: false
+# interaction_head_dim: 16
 
 # - products - #
-interaction_use_mace_product: false
+# use_mace_product: true
 
-# - pooling layer - #
-pooling_use_attention: false
-pooling_head_dim: 64
-pooling_mlp_latent_dimensions: [512]
+interaction_output_ls: [0, 1] # [Optional] used to avoid to compute l>1 as output of interaction, as I know I am not going to use l>1 later
+# ---  END interaction layers  --- #
+# --- START pooling layer --- #
+edge_pooling_use_attention: false
+# ---  END pooling layer  --- #
 
-# - head - #
-head_eq_has_internal_weights: false
-head_mlp_latent_dimensions: [512]
-head_mlp_nonlinearity: silu
-head_has_bias: false
+# --- START HEADS --- #
+heads:
+  # - [noise, 1x1o]
+  - [node_output, 5x1o]
 
-# - end layers - #
+# --- head node_output --- #
+head_node_output_readout_latent: geqtrain.nn.ScalarMLPFunction
+head_node_output_mlp_latent_dimensions: [512]
+head_mlp_nonlinearity: swiglu
 
-out_irreps: '5x1o' # Use the output irreps suggested when building the dataset
+# ---  END HEADS  --- #
 
 # --- D A T A S E T --- #
 
@@ -202,7 +211,7 @@ dataloader_num_workers: 2
 skip_chunking: true   # If even 1 batch does not fit in you GPU, set this to false and modify 'batch_max_atoms' to make the chunked dataset fit
 # batch_max_atoms: 3000 # Limit the maximum number of nodes of a graph to be loaded on memory in a single batch
 
-max_epochs: 10
+max_epochs: 10000
 learning_rate: 1.0e-4
 # noise: 0.05
 train_val_split: random
@@ -221,15 +230,17 @@ optimizer_params:
 # max_gradient_norm: 1.
 # use_grokfast: true
 sanitize_gradients: true
+use_warmup: true
+warmup_epochs: 5
 
 # - scheduler - #
 lr_scheduler_name: ReduceLROnPlateau
-lr_scheduler_patience: 1
+lr_scheduler_patience: 10
 lr_scheduler_factor: 0.5
 
 # - early stopping - #
 early_stopping_lower_bounds:
-  LR: 1.0e-5
+  LR: 1.0e-7
 
 early_stopping_patiences:
-  validation_loss: 15
+  validation_loss: 50
