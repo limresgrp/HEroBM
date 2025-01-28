@@ -67,7 +67,6 @@ edge_pooling_use_attention: false
 
 # --- START HEADS --- #
 heads:
-  # - [noise, 1x1o]
   - [node_output, 5x1o]
 
 # --- head node_output --- #
@@ -82,7 +81,22 @@ head_mlp_nonlinearity: swiglu
 # - train - #
 dataset_list:
   - dataset: npz
-    dataset_input: data/tutorial/A2A/npz # Folder containing all npz files to load as dataset
+    dataset_input: /home/angiod@usi.ch/HEroBM/tutorial/data/A2A/train # Folder containing all npz files to load as training dataset
+    key_mapping:
+      bead_types: node_types
+      bead_pos: pos
+      bead2atom_rel_vectors: node_otuput
+      bead2atom_reconstructed_idcs: bead2atom_reconstructed_idcs
+      bead2atom_reconstructed_weights: bead2atom_reconstructed_weights
+      lvl_idcs_mask: lvl_idcs_mask
+      lvl_idcs_anchor_mask: lvl_idcs_anchor_mask
+      bond_idcs: atom_bond_idx
+      angle_idcs: atom_angle_idx
+      atom_pos: atom_pos
+
+validation_dataset_list:
+  - validation_dataset: npz
+    validation_dataset_input: /home/angiod@usi.ch/HEroBM/tutorial/data/A2A/valid # Folder containing all npz files to load as validation dataset
     key_mapping:
       bead_types: node_types
       bead_pos: pos

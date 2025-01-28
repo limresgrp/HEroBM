@@ -117,7 +117,7 @@ class HierarchicalBackmapping:
         for mapping in self.mapping():
             yield mapping
 
-    def backmap(self, optimise_backbone: bool = True, tolerance: float = 50., frame_idcs: Optional[List[int]] = None):
+    def backmap(self, tolerance: float = 50., frame_idcs: Optional[List[int]] = None):
         
         backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames = [], [], [], []
         for input_filenames_index, mapping in enumerate(self.map()):
@@ -155,7 +155,7 @@ class HierarchicalBackmapping:
                     DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED: [],
                     DataDict.ATOM_POSITION_PRED: [],
                 }
-                def collect_chunks(batch_index, chunk_index, out, ref_data, pbar, **kwargs):
+                def collect_chunks(batch_index, chunk_index, out, ref_data, data, pbar, **kwargs):
                     rvp_list = results.get(DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED)
                     rvp_list.append(out[AtomicDataDict.NODE_OUTPUT_KEY].cpu().numpy())
                     app_list = results.get(DataDict.ATOM_POSITION_PRED)
@@ -233,7 +233,7 @@ class HierarchicalBackmapping:
             cg_u = build_CG(backmapping_dataset, n_frames, self.mapping.selection.dimensions)
             cg_u.trajectory[frame_index]
             cg_sel = cg_u.select_atoms('all')
-            cg_sel.positions = np.nan_to_num(backmapping_dataset[DataDict.BEAD_POSITION])
+            cg_sel.positions = np.nan_to_num(backmapping_dataset[DataDict.BEAD_POSITION][frame_index])
             cg_filename = os.path.join(self.output_folder, f"{prefix}.CG_{frame_index}.pdb")
             with mda.Writer(cg_filename, n_atoms=cg_sel.atoms.n_atoms) as w:
                 w.write(cg_sel.atoms)
