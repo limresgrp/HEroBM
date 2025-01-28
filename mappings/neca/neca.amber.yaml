@@ -1,0 +1,41 @@
+molecule: NEC
+
+atoms:
+  O1 :  AO2 P1A
+  O2 :  RO4 P1A
+  O3 :  RO3 P1A
+  O4 :  RO1 P2BB
+  N1 :  Ar1 P2AA
+  N2 :  RO1 P1A
+  N3 :  Ar1 P2AB
+  N4 :  Ar3 P2AA
+  N5 :  Ar4 P2AA
+  N6 :  Ar4 P2AB
+  C1 :  RO4 P1B1
+  C2 :  AO2 P2AA
+  C3 :  RO3 P1B
+  C4 :  AO2 P2AB
+  C5 :  RO1 P1B
+  C6 :  Ar2 P1A
+  C7 :  Ar1 P1A
+  C8 :  Ar2 P1B
+  C9 :  RO0 P1A
+  C10:  Ar4 P1A
+  C11:  Ar3 P1A
+  C12:  RO0 P1B
+  H1 :  RO4 P2BB
+  H2 :  AO2 P3AA
+  H3 :  RO3 P2BB
+  H4 :  AO2 P3BB
+  H5 :  RO4 P2AA
+  H6 :  RO3 P2AA
+  H7 :  Ar1 P2AC
+  H8 :  RO1 P2AA
+  H9 :  RO0 P2AA
+  H10:  RO0 P2AB
+  H11:  Ar3 P2AB
+  H12:  RO0 P2BC
+  H13:  RO0 P2BD
+  H14:  RO0 P2BE
+  H15:  Ar4 P3BA
+  H16:  Ar4 P3BB1
