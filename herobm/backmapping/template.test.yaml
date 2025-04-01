@@ -1,0 +1,28 @@
+root: {ROOT}
+
+# --- D A T A S E T --- #
+
+test_dataset_list:
+  - test_dataset: npz
+    test_dataset_input: {TEST_DATASET_INPUT}
+    key_mapping:
+      bead_types: node_types
+      bead_pos: pos
+      bead2atom_rel_vectors: node_otuput
+      bead2atom_reconstructed_idcs: bead2atom_reconstructed_idcs
+      bead2atom_reconstructed_weights: bead2atom_reconstructed_weights
+      lvl_idcs_mask: lvl_idcs_mask
+      lvl_idcs_anchor_mask: lvl_idcs_anchor_mask
+      bond_idcs: atom_bond_idx
+      angle_idcs: atom_angle_idx
+      atom_pos: atom_pos
+
+node_fields:
+  - node_output
+  - bead2atom_reconstructed_idcs
+  - bead2atom_reconstructed_weights
+  - lvl_idcs_mask
+  - lvl_idcs_anchor_mask
+
+extra_fields:
+  - atom_pos
