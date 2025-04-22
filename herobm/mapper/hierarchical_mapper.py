@@ -16,6 +16,8 @@ class HierarchicalMapper(Mapper):
     _bead2atom_reconstructed_idcs: np.ndarray = None
     _bead2atom_reconstructed_idcs_orig: np.ndarray = None
 
+    _bead2atom_reconstructed_weights: np.ndarray = None
+
     _bond_idcs: np.ndarray = None
     _angle_idcs: np.ndarray = None
     _torsion_idcs: np.ndarray = None
