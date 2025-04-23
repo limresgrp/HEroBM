@@ -84,28 +84,3 @@ class InvariantsLoss(SimpleLoss):
             return loss_bonds + loss_angles
         else:
             return loss_angles
-
-
-class RMSDLoss(SimpleLoss):
-
-    def __init__(self, func_name: str, params: dict = ...):
-        super().__init__('MSELoss', params)
-        self.reduction = Reduction.RMS
-
-    def __call__(
-        self,
-        pred: dict,
-        ref: dict,
-        key: str,
-        mean: bool = True,
-        **kwargs,
-    ):
-        pred_key, ref_key, not_nan_filter = self.prepare(pred, ref, key, **kwargs)
-
-        loss = torch.sum(self.func(torch.nan_to_num(pred_key, nan=0.)*not_nan_filter, torch.nan_to_num(ref_key, nan=0.)*not_nan_filter), dim=-1)
-        if mean:
-            return torch.sqrt(loss.sum() / not_nan_filter.sum())
-        else:
-            # The accumulate_batch() method used by metrics first squares the loss, then computes the average and then extracts the root.
-            # Thus, we need to pass the sqrt(loss) to obtain the RMSD as output.
-            return torch.sqrt(loss)

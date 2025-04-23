@@ -120,7 +120,7 @@ class HierarchicalBackmapping:
     def backmap(self, tolerance: float = 50., frame_idcs: Optional[List[int]] = None):
         
         backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames = [], [], [], []
-        for input_filenames_index, mapping in enumerate(self.map()):
+        for input_filenames_index, (mapping, _) in enumerate(self.map()):
             
             if frame_idcs is None:
                 frame_idcs = range(0, len(mapping))

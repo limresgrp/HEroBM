@@ -12,7 +12,6 @@ default_dtype: float32
 
 # -- network --
 model_builders:
-  # - herobm.backmapping.model.Model
   - HeadlessNodeModel
   - Heads
   - herobm.backmapping.model.HierarchicalReconstruction
@@ -52,9 +51,8 @@ env_embed_mlp_latent_dimensions: [512]
 env_embed_mlp_nonlinearity: swiglu
 
 # - attention - #
-avg_num_neighbors: 30
-interaction_use_attention: false
-# interaction_head_dim: 16
+interaction_use_attention: true
+interaction_head_dim: 32
 
 # - products - #
 # use_mace_product: true
@@ -62,12 +60,15 @@ interaction_use_attention: false
 interaction_output_ls: [0, 1] # [Optional] used to avoid to compute l>1 as output of interaction, as I know I am not going to use l>1 later
 # ---  END interaction layers  --- #
 # --- START pooling layer --- #
-edge_pooling_use_attention: false
+edge_pooling_use_attention: true
 # ---  END pooling layer  --- #
 
 # --- START HEADS --- #
 heads:
-  - [node_output, 5x1o]
+  head_node_output:
+    field: node_features
+    out_field: node_output
+    out_irreps: 5x1o
 
 # --- head node_output --- #
 head_node_output_readout_latent: geqtrain.nn.ScalarMLPFunction
@@ -206,7 +207,7 @@ loss_coeffs:
 
 metrics_components:
   - atom_pos: # Loss on reconstructed atoms RMSD
-    - herobm.backmapping.train.RMSDLoss
+    - geqtrain.train.RMSDLoss
     - ignore_nan: true
 
 # --- L O G G I N G --- #
