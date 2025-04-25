@@ -1,6 +1,5 @@
-from ._loss import InvariantsLoss, RMSDLoss
+from ._loss import InvariantsLoss
 
 __all__ = [
     InvariantsLoss,
-    RMSDLoss,
 ]
