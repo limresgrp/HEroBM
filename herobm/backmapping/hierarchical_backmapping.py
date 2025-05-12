@@ -312,8 +312,9 @@ def build_CG(
 
 def add_box(u: mda.Universe, box_dimensions):
     if box_dimensions is None:
+        from MDAnalysis.transformations import set_dimensions
         dim = np.array([100., 100., 100., 90, 90, 90])
-        transform = mda.transformations.boxdimensions.set_dimensions(dim)
+        transform = set_dimensions(dim)
         u.trajectory.add_transformations(transform)
     else:
         u.dimensions = box_dimensions

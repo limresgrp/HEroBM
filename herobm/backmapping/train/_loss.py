@@ -2,7 +2,6 @@ import torch
 
 from geqtrain.data import AtomicDataDict
 from geqtrain.train._loss import SimpleLoss
-from torch_runstats import Reduction
 
 from herobm.utils.geometry import get_bonds, get_angles, get_dihedrals
 

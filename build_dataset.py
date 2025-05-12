@@ -34,13 +34,20 @@ def build_dataset(args_dict):
     
     for m, output_filename in mapping(**args_dict):
         if m is None:
-            print(f'File {output_filename} has more than 20000 atoms. Skipping.')
+            print(f'File {output_filename} has more than 10000 atoms. Skipping.')
             continue
         m.save_npz(filename=output_filename, from_pos_unit='Angstrom', to_pos_unit='Angstrom')
         print(f'File {output_filename} saved!')
     
     config_update_text = f'''Update the training configuration file with the following snippet (excluding quotation marks):
-    \n"\nheads:\n   - [node_output, {mapping.bead_reconstructed_size}x1o]\n\ntype_names:\n'''
+    heads:
+        head_output:
+            field: node_features
+            out_field: node_output
+            out_irreps: {mapping.bead_reconstructed_size}x1o
+            model: geqtrain.nn.ReadoutModule
+    
+    type_names:\n'''
     for bt in {x[1]: x[0] for x in sorted(mapping.bead_types_dict.items(), key=lambda x: x[1])}.values():
         config_update_text += f'- {bt}\n'
     config_update_text += '"'
@@ -115,10 +122,10 @@ def parse_command_line(args=None):
         type=str,
     )
     parser.add_argument(
-        "-e",
-        "--extrakwargs",
-        help="Extra arguments to pass to the mapper.",
-        type=json.loads,
+        "-b",
+        "--bead-types-filename",
+        help="YAML file containing the bead type assigned to each bead. Default: 'bead_types.yaml'",
+        type=str,
     )
     parser.add_argument('--isatomistic', action='store_true', default=True, help='Specify that the input is atomistic (default)')
     parser.add_argument('-cg', action='store_false', dest='isatomistic', help='Specify that the input is coarse-grained')

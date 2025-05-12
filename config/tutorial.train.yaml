@@ -201,7 +201,6 @@ loss_coeffs:
     - .5
     - herobm.backmapping.train.InvariantsLoss
     - ignore_nan: true
-      ignore_zeroes: true
 
 # --- M E T R I C S --- #
 
