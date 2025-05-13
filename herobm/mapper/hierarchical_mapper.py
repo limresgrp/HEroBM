@@ -136,11 +136,23 @@ class HierarchicalMapper(Mapper):
         self._bond_idcs = None
         x = self._atom_positions[0]
         if np.any(x):
-            y = x - x[:, None]
-            y = np.linalg.norm(y, axis=-1)
-            z = (y > bond_min_length) * (y < bond_max_length)
-            z[np.tril_indices(len(z), k=-1)] = False
-            self._bond_idcs = np.stack(np.nonzero(z)).T
+            # Compute which atoms are bonded, looking maximum at 20 positions away
+            # to avoid quadratic scaling with number of atoms
+            bond_idcs = []
+            horizon = 20
+            for start in range(0, len(x), horizon):
+                source_end = min(len(x), start + horizon)
+                target_end = min(len(x), start + 2*horizon)
+                y = x[start:target_end] - x[start:source_end, None]
+                y = np.linalg.norm(y, axis=-1)
+                z = (y > bond_min_length) * (y < bond_max_length)
+                z[np.tril_indices(len(z), k=-1)] = False
+                source_bond_idcs, target_bond_idcs = np.nonzero(z)
+                source_bond_idcs += start
+                target_bond_idcs += start
+                bond_idcs.append(np.stack([source_bond_idcs, target_bond_idcs]))
+
+            self._bond_idcs = np.concatenate(bond_idcs, axis=1).T
             self._bond_idcs = self._bond_idcs[np.all(np.isin(self._bond_idcs, atoms_to_reconstruct_idcs), axis=1)]
         if self._bond_idcs is None or len(self._bond_idcs) == 0:
             bond_idcs = []
