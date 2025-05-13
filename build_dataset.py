@@ -34,7 +34,7 @@ def build_dataset(args_dict):
     
     for m, output_filename in mapping(**args_dict):
         if m is None:
-            print(f'File {output_filename} has more than 10000 atoms. Skipping.')
+            print(f'File {output_filename} has more than 20000 atoms. Skipping.')
             continue
         m.save_npz(filename=output_filename, from_pos_unit='Angstrom', to_pos_unit='Angstrom')
         print(f'File {output_filename} saved!')
