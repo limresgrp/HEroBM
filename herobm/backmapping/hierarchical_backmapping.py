@@ -11,7 +11,7 @@ import warnings
 
 warnings.filterwarnings("ignore")
 
-from os.path import basename
+from os.path import join, dirname, basename
 from typing import Callable, Dict, List, Optional
 from MDAnalysis.analysis import align
 
@@ -122,14 +122,16 @@ class HierarchicalBackmapping:
     def backmap(self, tolerance: float = 50., frame_idcs: Optional[List[int]] = None):
         
         backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames = [], [], [], []
-        for input_filenames_index, (mapping, _) in enumerate(self.map()):
+        for input_filenames_index, (mapping, output_filename) in enumerate(self.map()):
+            if self.output_folder is None:
+                self.output_folder = dirname(output_filename)
             
             if frame_idcs is None:
                 frame_idcs = range(0, len(mapping))
             n_frames = max(frame_idcs) + 1
 
             with tempfile.TemporaryDirectory() as tmp:
-                npz_filename = os.path.join(tmp, 'data.npz')
+                npz_filename = join(tmp, 'data.npz')
                 mapping.save_npz(filename=npz_filename, from_pos_unit='Angstrom', to_pos_unit='Angstrom')
                 if self.preprocess_npz_func is not None:
                     ds = mapping.dataset
@@ -137,8 +139,8 @@ class HierarchicalBackmapping:
                     updated_npz_ds = self.preprocess_npz_func(ds, npz_ds)
                     np.savez(npz_filename, **updated_npz_ds)
                     print(f"npz dataset {npz_filename} correctly preprocessed!")
-                yaml_filename = os.path.join(tmp, 'test.yaml')
-                shutil.copyfile(os.path.join(os.path.dirname(__file__), 'template.test.yaml'), yaml_filename)
+                yaml_filename = join(tmp, 'test.yaml')
+                shutil.copyfile(join(dirname(__file__), 'template.test.yaml'), yaml_filename)
                 replace_words_in_file(
                     yaml_filename,
                     {
@@ -246,7 +248,7 @@ class HierarchicalBackmapping:
             cg_u.trajectory[frame_index]
             cg_sel = cg_u.select_atoms('all')
             cg_sel.positions = np.nan_to_num(backmapping_dataset[DataDict.BEAD_POSITION][frame_index])
-            cg_filename = os.path.join(self.output_folder, f"{prefix}.CG_{frame_index}.pdb")
+            cg_filename = join(self.output_folder, f"{prefix}.CG_{frame_index}.pdb")
             with mda.Writer(cg_filename, n_atoms=cg_sel.atoms.n_atoms) as w:
                 w.write(cg_sel.atoms)
         
@@ -261,14 +263,14 @@ class HierarchicalBackmapping:
             true_sel = backmapped_u.select_atoms('all')
             true_positions = backmapping_dataset[DataDict.ATOM_POSITION][0]
             true_sel.positions = true_positions[~np.any(np.isnan(positions_pred), axis=-1)]
-            true_filename = os.path.join(self.output_folder, f"{prefix}.true_{frame_index}.pdb")
+            true_filename = join(self.output_folder, f"{prefix}.true_{frame_index}.pdb")
             with mda.Writer(true_filename, n_atoms=backmapped_u.atoms.n_atoms) as w:
                 w.write(true_sel.atoms)
 
         # Write pdb of backmapped structure
         backmapped_sel = backmapped_u.select_atoms('all')
         backmapped_sel.positions = positions_pred[~np.any(np.isnan(positions_pred), axis=-1)]
-        backmapped_filename = os.path.join(self.output_folder, f"{prefix}.backmapped_{frame_index}.pdb")
+        backmapped_filename = join(self.output_folder, f"{prefix}.backmapped_{frame_index}.pdb")
         with mda.Writer(backmapped_filename, n_atoms=backmapped_u.atoms.n_atoms) as w:
             w.write(backmapped_sel.atoms)
         
@@ -278,8 +280,8 @@ class HierarchicalBackmapping:
             from herobm.utils.pdbFixer import fixPDB
             from herobm.utils.minimisation import minimise_impl
             topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
-            backmapped_minimised_filename = os.path.join(self.output_folder, f"{prefix}.backmapped_min_{frame_index}.pdb")
-        
+            backmapped_minimised_filename = join(self.output_folder, f"{prefix}.backmapped_min_{frame_index}.pdb")
+
             minimise_impl(
                 topology,
                 positions,
