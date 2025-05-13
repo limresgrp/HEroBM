@@ -12,7 +12,7 @@ import warnings
 warnings.filterwarnings("ignore")
 
 from os.path import basename
-from typing import Dict, List, Optional
+from typing import Callable, Dict, List, Optional
 from MDAnalysis.analysis import align
 
 from herobm.mapper.hierarchical_mapper import HierarchicalMapper
@@ -40,7 +40,7 @@ class HierarchicalBackmapping:
 
     minimiser: MinimizeEnergy
 
-    def __init__(self, args_dict) -> None:
+    def __init__(self, args_dict, preprocess_npz_func: Callable = None) -> None:
         
         # Parse Input
         self.mapping = HierarchicalMapper(args_dict=args_dict)
@@ -48,6 +48,8 @@ class HierarchicalBackmapping:
 
         self.output_folder = self.config.get("output")
         self.device = self.config.get("device", "cpu")
+
+        self.preprocess_npz_func = preprocess_npz_func
 
         # Load model
         self.model, model_config = load_model(self.config.get("model"), self.config.get("device"))
@@ -129,6 +131,12 @@ class HierarchicalBackmapping:
             with tempfile.TemporaryDirectory() as tmp:
                 npz_filename = os.path.join(tmp, 'data.npz')
                 mapping.save_npz(filename=npz_filename, from_pos_unit='Angstrom', to_pos_unit='Angstrom')
+                if self.preprocess_npz_func is not None:
+                    ds = mapping.dataset
+                    npz_ds = dict(np.load(npz_filename, allow_pickle=True))
+                    updated_npz_ds = self.preprocess_npz_func(ds, npz_ds)
+                    np.savez(npz_filename, **updated_npz_ds)
+                    print(f"npz dataset {npz_filename} correctly preprocessed!")
                 yaml_filename = os.path.join(tmp, 'test.yaml')
                 shutil.copyfile(os.path.join(os.path.dirname(__file__), 'template.test.yaml'), yaml_filename)
                 replace_words_in_file(
@@ -152,10 +160,13 @@ class HierarchicalBackmapping:
                 )
 
                 results = {
+                    DataDict.BEAD_POSITION: [],
                     DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED: [],
                     DataDict.ATOM_POSITION_PRED: [],
                 }
                 def collect_chunks(batch_index, chunk_index, out, ref_data, data, pbar, **kwargs):
+                    pos_list = results.get(DataDict.BEAD_POSITION)
+                    pos_list.append(out[AtomicDataDict.POSITIONS_KEY].cpu().numpy())
                     rvp_list = results.get(DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED)
                     rvp_list.append(out[AtomicDataDict.NODE_OUTPUT_KEY].cpu().numpy())
                     app_list = results.get(DataDict.ATOM_POSITION_PRED)
@@ -166,6 +177,7 @@ class HierarchicalBackmapping:
                 def save_batch(batch_index, **kwargs):
                     backmapping_dataset = self.mapping.dataset
                     backmapping_dataset.update({
+                        DataDict.BEAD_POSITION: np.stack(results[DataDict.BEAD_POSITION], axis=0),
                         DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED: np.concatenate(results[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED], axis=0),
                         DataDict.ATOM_POSITION_PRED: np.nanmean(np.stack(results[DataDict.ATOM_POSITION_PRED], axis=0), axis=0),
                     })
