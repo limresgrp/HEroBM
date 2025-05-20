@@ -68,13 +68,21 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
             raise Exception("NaN")
         bead_pos = data[AtomicDataDict.POSITIONS_KEY]
         bead_pos_slices        = data.get("pos_slices")
+        assert bead_pos_slices is not None
         atom_pos_slices        = data.get("atom_pos_slices")
+        assert atom_pos_slices is not None
         idcs_mask              = data.get("bead2atom_reconstructed_idcs")
-        idcs_mask_slices       = data.get("bead2atom_reconstructed_idcs_slices", torch.tensor([0, len(bead_pos)], dtype=int, device=bead_pos.device))
+        assert idcs_mask is not None
+        idcs_mask_slices       = data.get("bead2atom_reconstructed_idcs_slices", torch.tensor([0, len(bead_pos)], dtype=torch.int, device=bead_pos.device))
         weights                = data.get("bead2atom_reconstructed_weights")
+        assert weights is not None
         level_idcs_mask        = data.get("lvl_idcs_mask")
+        assert level_idcs_mask is not None
         level_idcs_anchor_mask = data.get("lvl_idcs_anchor_mask")
-        bead_types             = data.get(AtomicDataDict.NODE_TYPE_KEY).squeeze(-1)
+        assert level_idcs_anchor_mask is not None
+        bead_types             = data.get(AtomicDataDict.NODE_TYPE_KEY)
+        assert bead_types is not None
+        bead_types = bead_types.squeeze(-1)
         center_atoms           = torch.unique(data[AtomicDataDict.EDGE_INDEX_KEY][0])
         n_reconstructed_beads  = len(center_atoms)
 

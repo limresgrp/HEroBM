@@ -1,6 +1,8 @@
 import argparse
 from herobm.backmapping.hierarchical_backmapping import HierarchicalBackmapping
 
+# python run_inference.py -m martini2 -i /capstor/scratch/cscs/dangiole/HEroBM/A2A.A2B/stefano.a2a.gro -s protein --cg -mo /users/dangiole/HEroBM/martini2.protein.deployed_model.pth -d cuda -b bead_types.bbcommon.yaml -bs /users/dangiole/HEroBM/out.csv
+
 def main():
     parser = argparse.ArgumentParser(description="Run hierarchical backmapping.")
 
@@ -24,6 +26,7 @@ def main():
 
     # Backmapping specific arguments
     parser.add_argument("-t", "--tolerance", type=float, default=500.0, help="Energy tolerance for minimisation (kJ/(mol nm)) (default: 500.0)")
+    parser.add_argument("-bs", "--bead-stats", type=str, default=None, help="csv file with bead2bead distance stats. Pass this to minimize bead pos before backmapping.")
 
     args = parser.parse_args()
 
@@ -35,7 +38,13 @@ def main():
             args_dict[arg_name] = arg_value
     args_dict["noinvariants"] = True  # This is always True
 
-    backmapping = HierarchicalBackmapping(args_dict=args_dict)
+    if args.bead_stats:
+        from herobm.backmapping.minimize_cg import minimize_bead_distances
+        from functools import partial
+        func = partial(minimize_bead_distances, csv_filepath=args.bead_stats)
+        backmapping = HierarchicalBackmapping(args_dict=args_dict, preprocess_npz_func=func)
+    else:
+        backmapping = HierarchicalBackmapping(args_dict=args_dict)
 
     backmapped_filenames, backmapped_minimised_filenames, true_filenames, cg_filenames = backmapping.backmap(
         tolerance=args.tolerance,

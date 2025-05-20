@@ -103,9 +103,9 @@ def minimize_bead_distances(ds, npz_ds, csv_filepath, force_constant=100.0, lear
                     idx1_order = bead_name_to_order_idx[bead_name1]
                     idx2_order = bead_name_to_order_idx[bead_name2]
 
-                    # Check for consecutive order (e.g., BB -> SC1, SC1 -> SC2, etc.)
+                    # Check for consecutive order (e.g., BB -> SC1, SC1 -> SC2, SC1 -> SC4 etc.)
                     # We only add the connection once, ensuring idx1_order < idx2_order
-                    if idx2_order == idx1_order + 1:
+                    if idx2_order > idx1_order:
                          # Key for intra-residue connection
                          key = (res_name1, bead_name1, res_name2, bead_name2)
                          # Check if this connection type has a target distance from the CSV
