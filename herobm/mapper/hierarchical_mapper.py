@@ -5,6 +5,22 @@ from herobm.utils import DataDict
 from herobm.mapper.bead import HEroBMBeadMappingAtomSettings, HEroBMBeadMappingSettings, HEroBMBead
 import pandas as pd
 
+
+def list2maskedarray(x):
+    # Find the maximum number of edges across all edge_index arrays
+    max_dim = max(e.shape[-1] for e in x)
+    num_graphs = len(x)
+    dims = x[0].shape
+
+    # Initialize masked array with -1
+    x_padded = np.full((num_graphs, *dims[:-1], max_dim), -1, dtype=x[0].dtype)
+
+    # Fill in the values
+    for i, e in enumerate(x):
+        x_padded[i, ..., :e.shape[-1]] = e
+    
+    return x_padded
+
 class HierarchicalMapper(Mapper):
 
     bead2atom_relative_vectors_list: List[np.ndarray]
@@ -21,6 +37,9 @@ class HierarchicalMapper(Mapper):
     _bond_idcs: np.ndarray = None
     _angle_idcs: np.ndarray = None
     _torsion_idcs: np.ndarray = None
+
+    _edge_index: np.ndarray = None
+    _cutoff: float = None
 
     @property
     def level_idcs_mask(self):
@@ -51,6 +70,53 @@ class HierarchicalMapper(Mapper):
         if self._bead2atom_reconstructed_weights is None:
             return None
         return np.ma.masked_array(self._bead2atom_reconstructed_weights, mask=self.bead2atom_reconstructed_idcs_mask)
+    
+    def edge_index(self, cutoff):
+        if self._edge_index is not None and self._cutoff == cutoff:
+            return self._edge_index
+        
+        from geqtrain.data.AtomicData import neighbor_list
+        from torch import from_numpy
+        edge_index = []
+        for pos in self._bead_positions:
+            _edge_index, _edge_cell_shift, _cell = neighbor_list(
+                pos=from_numpy(pos),
+                r_max=cutoff,
+                cell=None,
+                pbc=(False, False, False),
+            )
+            _edge_index = _edge_index.numpy()
+            edge_index.append(_edge_index)
+        
+        self._cutoff == cutoff
+        self._edge_index = list2maskedarray(edge_index)
+        return self._edge_index
+    
+    @property
+    def bead_is_prev(self):
+        assert self._edge_index is not None
+        _bead_is_prev = []
+        bead_resnumbers = self._bead_resnums
+        bead_chainids = self._bead_segids
+        for _edge_index in self._edge_index:
+            resnumbers = bead_resnumbers[_edge_index]
+            chainids = bead_chainids[_edge_index]
+            is_prev = ((resnumbers[1] - resnumbers[0]) == -1) * (chainids[1] == chainids[0]) * (_edge_index[0] > -1)
+            _bead_is_prev.append(is_prev)
+        return np.stack(_bead_is_prev, axis=0)
+    
+    @property
+    def bead_is_next(self):
+        assert self._edge_index is not None
+        _bead_is_next = []
+        bead_resnumbers = self._bead_resnums
+        bead_chainids = self._bead_segids
+        for _edge_index in self._edge_index:
+            resnumbers = bead_resnumbers[_edge_index]
+            chainids = bead_chainids[_edge_index]
+            is_prev = ((resnumbers[1] - resnumbers[0]) == 1) * (chainids[1] == chainids[0]) * (_edge_index[0] > -1)
+            _bead_is_next.append(is_prev)
+        return np.stack(_bead_is_next, axis=0)
 
     @property
     def dataset(self):
@@ -65,6 +131,13 @@ class HierarchicalMapper(Mapper):
             DataDict.BEAD2ATOM_RECONSTRUCTED_IDCS: self.bead2atom_reconstructed_idcs,
             DataDict.BEAD2ATOM_RECONSTRUCTED_WEIGHTS: self.bead2atom_reconstructed_weights,
         }.items() if v is not None})
+        cutoff = self.config.get("cutoff", None)
+        if cutoff is not None:
+            dataset.update({k: v for k, v in {
+                DataDict.EDGE_INDEX: self.edge_index(cutoff),
+                DataDict.BEAD_IS_PREV: self.bead_is_prev,
+                DataDict.BEAD_IS_NEXT: self.bead_is_next,
+            }.items() if v is not None})
         return dataset
 
     def __init__(self, args_dict) -> None:
