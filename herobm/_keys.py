@@ -39,6 +39,10 @@ BEAD2ATOM_RELATIVE_VECTORS_PRED:  Final[str] = "bead2atom_rel_vectors_pred"
 BEAD2ATOM_RECONSTRUCTED_IDCS:  Final[str] = "bead2atom_reconstructed_idcs"
 BEAD2ATOM_RECONSTRUCTED_WEIGHTS:  Final[str] = "bead2atom_reconstructed_weights"
 
+EDGE_INDEX:  Final[str] = "edge_index"
+BEAD_IS_PREV:  Final[str] = "bead_is_prev"
+BEAD_IS_NEXT:  Final[str] = "bead_is_next"
+
 BOND_IDCS:  Final[str] = "bond_idcs"
 ANGLE_IDCS:  Final[str] = "angle_idcs"
 TORSION_IDCS: Final[str] = "torsion_idcs"

@@ -126,6 +126,14 @@ def parse_command_line(args=None):
         "--bead-types-filename",
         help="YAML file containing the bead type assigned to each bead. Default: 'bead_types.yaml'",
         type=str,
+        default="bead_types.yaml",
+    )
+    parser.add_argument(
+        "-c",
+        "--cutoff",
+        help="Pre-compute graph edges with specified cutoff.\n" +
+             "If you set this option, information on preceding and following beads will be included (suggested choice).",
+        type=float,
     )
     parser.add_argument('--isatomistic', action='store_true', default=True, help='Specify that the input is atomistic (default)')
     parser.add_argument('-cg', action='store_false', dest='isatomistic', help='Specify that the input is coarse-grained')
