@@ -1,13 +1,13 @@
 #!/bin/bash
-#SBATCH --job-name=geqtrain-train
-#SBATCH --time=01:00:00
+#SBATCH --job-name=herobm-train
+#SBATCH --time=05:00:00
 #SBATCH --nodes=1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=32
 #SBATCH --environment=geqtrain
 #SBATCH --account=u8
 #SBATCH --partition=normal
-#SBATCH --mem=32GB
+#SBATCH --mem=64GB
 
 
 cd $HOME/HEroBM/
