@@ -116,7 +116,7 @@ Refer to the article for detailed explanations.
 
 3. Create and activate the Python virtual environment:
     ```bash
-    python -m venv --system-site-packages ./geqtrain-venv
+    python -m venv --system-site-packages ./herobm-venv
     source ./herobm-venv/bin/activate
     ```
 
