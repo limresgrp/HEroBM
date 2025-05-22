@@ -75,7 +75,8 @@ def minimize_bead_distances(ds, npz_ds, csv_filepath, force_constant=100.0, lear
     connections_to_minimize = []
 
     # Define the order of relevant beads for identifying intra-residue connections
-    relevant_bead_names_order = ["BB", "SC1", "SC2", "SC3", "SC4"]
+    # Get unique bead names from ds['bead_names'] and sort them for consistent order
+    relevant_bead_names_order = sorted(np.unique(ds['bead_names']).tolist())
     # Create a mapping from bead name to its index in the ordered list
     bead_name_to_order_idx = {name: i for i, name in enumerate(relevant_bead_names_order)}
 
