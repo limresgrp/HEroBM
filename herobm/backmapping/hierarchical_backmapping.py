@@ -40,8 +40,11 @@ class HierarchicalBackmapping:
 
     minimiser: MinimizeEnergy
 
-    def __init__(self, args_dict, preprocess_npz_func: Callable = None) -> None:
-        
+    def __init__(self, args_dict: Dict, preprocess_npz_func: Callable = None) -> None:
+        # Load model
+        self.model, model_config = load_model(args_dict.get("model"), args_dict.get("device"))
+        args_dict.update({"cutoff": model_config.get("r_max")})
+
         # Parse Input
         self.mapping = HierarchicalMapper(args_dict=args_dict)
         self.config = self.mapping.config
@@ -50,9 +53,6 @@ class HierarchicalBackmapping:
         self.device = self.config.get("device", "cpu")
 
         self.preprocess_npz_func = preprocess_npz_func
-
-        # Load model
-        self.model, model_config = load_model(self.config.get("model"), self.config.get("device"))
         self.config.update(
             {
                 k: v
