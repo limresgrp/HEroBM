@@ -15,6 +15,13 @@ setup(
     description="HEroBM is a tool for back-mapping coarse-grained simulations to atomistic resolution.",
     python_requires=">=3.8",
     packages=find_packages(include=["herobm", "herobm.*"]),
+    entry_points={
+        # make the scripts available as command line scripts
+        "console_scripts": [
+            "herobm-dataset = herobm.scripts.build_dataset:main",
+            "herobm-backmap = herobm.scripts.run_inference:main",
+        ]
+    },
     install_requires=[
         "ipykernel",
         "matplotlib",
