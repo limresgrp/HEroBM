@@ -16,6 +16,9 @@ test_dataset_list:
       bond_idcs: atom_bond_idx
       angle_idcs: atom_angle_idx
       atom_pos: atom_pos
+      edge_index: edge_index
+      bead_is_prev: bead_is_prev
+      bead_is_next: bead_is_next
 
 node_fields:
   - node_output
@@ -23,6 +26,10 @@ node_fields:
   - bead2atom_reconstructed_weights
   - lvl_idcs_mask
   - lvl_idcs_anchor_mask
+
+edge_fields:
+  - bead_is_prev
+  - bead_is_next
 
 extra_fields:
   - atom_pos
