@@ -66,14 +66,16 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
         bead2atom_relative_vectors = self.reshape(data[self.in_field])
         if torch.any(torch.isnan(bead2atom_relative_vectors)):
             raise Exception("NaN")
+        
         bead_pos = data[AtomicDataDict.POSITIONS_KEY]
         bead_pos_slices        = data.get("pos_slices")
-        assert bead_pos_slices is not None
+        assert bead_pos_slices is not None, "'pos_slices' must be in data"
         atom_pos_slices        = data.get("atom_pos_slices")
-        assert atom_pos_slices is not None
+        assert atom_pos_slices is not None, "'atom_pos_slices' must be in data"
         idcs_mask              = data.get("bead2atom_reconstructed_idcs")
-        assert idcs_mask is not None
-        idcs_mask_slices       = data.get("bead2atom_reconstructed_idcs_slices", torch.tensor([0, len(bead_pos)], dtype=torch.int, device=bead_pos.device))
+        assert idcs_mask is not None, "'bead2atom_reconstructed_idcs' must be in data"
+        idcs_mask_slices       = data.get("bead2atom_reconstructed_idcs_slices")
+        assert idcs_mask_slices is not None, "'bead2atom_reconstructed_idcs_slices' must be in data"
         weights                = data.get("bead2atom_reconstructed_weights")
         assert weights is not None
         level_idcs_mask        = data.get("lvl_idcs_mask")

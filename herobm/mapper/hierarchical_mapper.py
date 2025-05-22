@@ -151,10 +151,10 @@ class HierarchicalMapper(Mapper):
         return super(HierarchicalMapper, self)._create_bead(bead_idname=bead_idname, bead_class=bead_class)
 
     def _compute_bead2atom_feats(self):
-        self._bead2atom_idcs = -np.ones((self.num_beads, self.bead_all_size), dtype=int)
-        self._bead2atom_weights = np.zeros((self.num_beads, self.bead_all_size), dtype=float)
+        self._bead2atom_idcs = -np.ones((self.num_beads, self.bead_all_size), dtype=np.int32)
+        self._bead2atom_weights = np.zeros((self.num_beads, self.bead_all_size), dtype=np.float32)
 
-        self._bead2atom_reconstructed_idcs = -np.ones((self.num_beads, self.bead_reconstructed_size), dtype=int)
+        self._bead2atom_reconstructed_idcs = -np.ones((self.num_beads, self.bead_reconstructed_size), dtype=np.int32)
         self._bead2atom_reconstructed_weights = np.zeros((self.num_beads, self.bead_reconstructed_size), dtype=np.float32)
 
         self._level_idcs_mask = np.zeros((self.num_beads, self.bead_reconstructed_size + 1, self.bead_reconstructed_size), dtype=bool)
