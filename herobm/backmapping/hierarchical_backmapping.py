@@ -264,7 +264,7 @@ class HierarchicalBackmapping:
         true_filename = None
         if DataDict.ATOM_POSITION in backmapping_dataset and not np.all(np.isnan(backmapping_dataset[DataDict.ATOM_POSITION])):
             true_sel = backmapped_u.select_atoms('all')
-            true_positions = backmapping_dataset[DataDict.ATOM_POSITION][0]
+            true_positions = backmapping_dataset[DataDict.ATOM_POSITION][frame_index]
             true_sel.positions = true_positions[~np.any(np.isnan(positions_pred), axis=-1)]
             true_filename = join(self.output_folder, f"{prefix}.true_{frame_index}.pdb")
             with mda.Writer(true_filename, n_atoms=backmapped_u.atoms.n_atoms) as w:
@@ -279,21 +279,22 @@ class HierarchicalBackmapping:
         
         backmapped_minimised_filename = None
         # Write pdb of minimised structure
-        try:
-            from herobm.utils.pdbFixer import fixPDB
-            from herobm.utils.minimisation import minimise_impl
-            topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
-            backmapped_minimised_filename = join(self.output_folder, f"{prefix}.backmapped_min_{frame_index}.pdb")
+        if tolerance is not None and tolerance > 0:
+            try:
+                from herobm.utils.pdbFixer import fixPDB
+                from herobm.utils.minimisation import minimise_impl
+                topology, positions = fixPDB(backmapped_filename, addHydrogens=True)
+                backmapped_minimised_filename = join(self.output_folder, f"{prefix}.backmapped_min_{frame_index}.pdb")
 
-            minimise_impl(
-                topology,
-                positions,
-                backmapped_minimised_filename,
-                restrain_atoms=[],
-                tolerance=tolerance,
-            )
-        except Exception as e:
-            pass
+                minimise_impl(
+                    topology,
+                    positions,
+                    backmapped_minimised_filename,
+                    restrain_atoms=[],
+                    tolerance=tolerance,
+                )
+            except Exception as e:
+                pass
 
         print(f"Finished. Time: {time.time() - t}")
 
