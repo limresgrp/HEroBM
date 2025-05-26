@@ -117,7 +117,7 @@ herobm-backmap [-h] [-m MAPPING] [-i INPUT] [-it INPUTTRAJ] [-o OUTPUT] [-s SELE
     Path to the pre-trained HEroBM model file (`.pth`). This specifies which trained neural network model to use for the backmapping process. Deployed models are typically located in the `deployed/` directory within the HEroBM installation.
 
 * `-b BEAD_TYPES_FILENAME`, `--bead-types-filename BEAD_TYPES_FILENAME`:
-    Path to a YAML file that defines the bead types assigned to each coarse-grained bead. This file is crucial for correctly mapping coarse-grained beads to their corresponding atomistic structures, especially when deployed models were trained with specific bead type assignments (e.g., assigning the same bead type to all backbone beads, or differentiating bead types based on their chemical environment). By default, HEroBM might assign a unique bead type to each backbone bead of different residues, which can lead to incorrect backmapping if the model expects a different assignment.
+    Path to a YAML file that defines the bead types assigned to each coarse-grained bead. This file is crucial for correctly mapping coarse-grained beads to their corresponding atomistic structures, especially when deployed models were trained with specific bead type assignments (e.g., assigning the same bead type to all backbone beads, or differentiating bead types based on their chemical environment). By default, HEroBM will use the `bead_types.yaml`, which assigns a unique bead type to each backbone bead of different residues. This can lead to incorrect backmapping if the model expects a different assignment.
     * **Default:** `bead_types.yaml`
     * **Important Note for Martini Models:** For Martini models (e.g., `martini2`, `martini3`), it is crucial to specify `bead_types.bbcommon.yaml`. This file ensures that the bead types used during backmapping align with those used during model training, where all backbone (BB) beads were assigned the same bead type. This file is located within the `CGMap` repository, specifically in the data folder for each Martini version (e.g., `cgmap/data/martini2/bead_types.bbcommon.yaml` or `cgmap/data/martini3/bead_types.bbcommon.yaml`).
 
@@ -139,7 +139,7 @@ herobm-backmap [-h] [-m MAPPING] [-i INPUT] [-it INPUTTRAJ] [-o OUTPUT] [-s SELE
 This command will backmap the protein part of a Martini3 coarse-grained system from a single `.gro` or `.pdb` file. The output will be saved in the `backmapped/test` directory.
 
 ```bash
-herobm-backmap -m martini3 -i /path/to/your/cgfile.gro -o backmapped/test -s protein --cg -mo deployed/martini3.protein.v2.pth -d cuda:0 -b cgmap/data/martini3/bead_types.bbcommon.yaml
+herobm-backmap -m martini3 -i /path/to/your/cgfile.gro -o backmapped/test -s protein --cg -mo deployed/martini3.protein.v2.pth -d cuda:0 -b bead_types.bbcommon.yaml
 ```
 
 (Replace `/path/to/your/cgfile.gro` with the actual path to your coarse-grained input file. You can also specify `cuda:0` for a specific GPU or cpu for CPU-only computation.)
@@ -149,7 +149,7 @@ herobm-backmap -m martini3 -i /path/to/your/cgfile.gro -o backmapped/test -s pro
 This example demonstrates how to backmap coarse-grained trajectories using the Martini2 force field. It will process all frames in the input trajectory and save the backmapped atomistic structures.
 
 ```bash
-herobm-backmap -m martini2 -it /path/to/your/cgtraj.xtc -o backmapped/test -s protein --cg -mo deployed/martini2.protein.v2.pth -d cuda:0 -b cgmap/data/martini2/bead_types.bbcommon.yaml
+herobm-backmap -m martini2 -it /path/to/your/cgtraj.xtc -o backmapped/test -s protein --cg -mo deployed/martini2.protein.v2.pth -d cuda:0 -b bead_types.bbcommon.yaml
 ```
 
 (Replace `/path/to/your/cgtraj.xtc` with the actual path to your coarse-grained trajectory file. The `bead_types.bbcommon.yaml` file for Martini2 is the one present in the folder of CGMap repo.)
