@@ -43,7 +43,10 @@ class HierarchicalBackmapping:
     def __init__(self, args_dict: Dict, preprocess_npz_func: Callable = None) -> None:
         # Load model
         self.model, model_config = load_model(args_dict.get("model"), args_dict.get("device"))
-        args_dict.update({"cutoff": model_config.get("r_max")})
+        args_dict.update({
+            "noinvariants": True, # Avoid computing angles and dihedrals when Coarse-graining atomistic input, they are used only for training.
+            "cutoff": model_config.get("r_max"),
+        })
 
         # Parse Input
         self.mapping = HierarchicalMapper(args_dict=args_dict)
