@@ -139,17 +139,17 @@ herobm-backmap [-h] [-m MAPPING] [-i INPUT] [-it INPUTTRAJ] [-o OUTPUT] [-s SELE
 This command will backmap the protein part of a Martini3 coarse-grained system from a single `.gro` or `.pdb` file. The output will be saved in the `backmapped/test` directory.
 
 ```bash
-herobm-backmap -m martini3 -i /path/to/your/cgfile.gro -o backmapped/test -s protein --cg -mo deployed/martini3.protein.v2.pth -d cuda:0 -b bead_types.bbcommon.yaml
+herobm-backmap -m martini3 -i /path/to/your/cgfile.gro -o backmapped/test -s protein --cg -mo deployed/martini3.protein.v2.pth -d cuda:0 -b bead_types.bbcommon.yaml -bs cgdist.martini3.protein.csv
 ```
 
-(Replace `/path/to/your/cgfile.gro` with the actual path to your coarse-grained input file. You can also specify `cuda:0` for a specific GPU or cpu for CPU-only computation.)
+(Replace `/path/to/your/cgfile.gro` with the actual path to your coarse-grained input file. You can also specify `cuda:0` for a specific GPU or cpu for CPU-only computation. `cgdist.martini3.protein.csv` contains pairs of equilibrium distances that respect the expected CG distribution, and is used to minimize the CG structure before backmapping, thus improving the overall backmapping quality.)
 
 **2. Backmapping Martini2 Proteins from a CG Trajectory:**
 
 This example demonstrates how to backmap coarse-grained trajectories using the Martini2 force field. It will process all frames in the input trajectory and save the backmapped atomistic structures.
 
 ```bash
-herobm-backmap -m martini2 -it /path/to/your/cgtraj.xtc -o backmapped/test -s protein --cg -mo deployed/martini2.protein.v2.pth -d cuda:0 -b bead_types.bbcommon.yaml
+herobm-backmap -m martini2 -i /path/to/your/cgtraj.gro -it /path/to/your/cgtraj.xtc -ts ::100 -o backmapped/test -s protein --cg -mo deployed/martini2.protein.v2.pth -d cuda:0 -b bead_types.bbcommon.yaml -bs cgdist.martini2.protein.csv
 ```
 
-(Replace `/path/to/your/cgtraj.xtc` with the actual path to your coarse-grained trajectory file. The `bead_types.bbcommon.yaml` file for Martini2 is the one present in the folder of CGMap repo.)
+(Replace `/path/to/your/cgtraj.gro` with the actual path to your coarse-grained gro file and `/path/to/your/cgtraj.xtc` with the actual path to your coarse-grained trajectory file. the `-ts ::100` samples all the frames from the trajectory with a stride of 100. The `bead_types.bbcommon.yaml` file for Martini2 is the one present in the folder of CGMap repo.)
