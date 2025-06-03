@@ -4,11 +4,11 @@ from herobm.backmapping.hierarchical_backmapping import HierarchicalBackmapping
 
 # python run_inference.py -m martini2 -i /capstor/scratch/cscs/dangiole/HEroBM/A2A.A2B/stefano.a2a.gro -s protein --cg -mo /users/dangiole/HEroBM/martini2.protein.deployed_model.pth -d cuda -b bead_types.bbcommon.yaml -bs /users/dangiole/HEroBM/out.csv
 
-def run_backmapping(args_dict: Dict, bead_stats: str = None, tolerance: float = 500.0):
+def run_backmapping(args_dict: Dict, bead_stats: str = None, num_steps: int = 100, tolerance: float = 500.0):
     if bead_stats:
         from herobm.backmapping.minimize_cg import minimize_bead_distances
         from functools import partial
-        func = partial(minimize_bead_distances, csv_filepath=bead_stats)
+        func = partial(minimize_bead_distances, csv_filepath=bead_stats, num_steps=num_steps)
         backmapping = HierarchicalBackmapping(args_dict=args_dict, preprocess_npz_func=func)
     else:
         backmapping = HierarchicalBackmapping(args_dict=args_dict)
@@ -47,6 +47,7 @@ def main():
 
     # Backmapping specific arguments
     parser.add_argument("-bs", "--bead-stats", type=str, default=None, help="csv file with bead2bead distance stats. Pass this to minimize bead pos before backmapping.")
+    parser.add_argument("-ns", "--num-steps", type=int, default=1000, help="Number of steps for the bead pos minimization algorithm before backmapping.")
     parser.add_argument("-t", "--tolerance", type=float, default=500.0, help="Energy tolerance for minimisation (kJ/(mol nm)) (default: 500.0)")
 
     args = parser.parse_args()
@@ -59,7 +60,7 @@ def main():
             args_dict[arg_name] = arg_value
     args_dict["noinvariants"] = True  # This is always True
 
-    run_backmapping(args_dict, bead_stats=args.bead_stats, tolerance=args.tolerance)
+    run_backmapping(args_dict, bead_stats=args.bead_stats, num_steps=args.num_steps, tolerance=args.tolerance)
 
 
 if __name__ == "__main__":

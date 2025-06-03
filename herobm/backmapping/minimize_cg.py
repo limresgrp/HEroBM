@@ -6,7 +6,7 @@ import pandas as pd
 from collections import defaultdict
 import sys # Import sys for exiting on errors
 
-def minimize_bead_distances(ds, npz_ds, csv_filepath, force_constant=100.0, learning_rate=0.01, num_steps=100, device = 'cpu'):
+def minimize_bead_distances(ds, npz_ds, csv_filepath, force_constant=10.0, learning_rate=0.001, num_steps=1000, device = 'cpu'):
     """
     Minimizes bead positions in a dataset (ds) to match target distances
     derived from a CSV file, using a harmonic potential and PyTorch optimization.
@@ -171,19 +171,21 @@ def minimize_bead_distances(ds, npz_ds, csv_filepath, force_constant=100.0, lear
         target_distances[k]  = torch.tensor(target_distances[k] , device=device)
         target_tolerances[k] = torch.tensor(target_tolerances[k], device=device)
     
-    idcs_1, idcs_2, targets, tolerances = [], [], [], []
+    idcs_1, idcs_2, masses_1, masses_2, targets, tolerances = [], [], [], [], [], []
     for idx1, idx2, key in final_unique_connections:
         idcs_1.append(idx1)
         idcs_2.append(idx2)
+        _, bead_name1, _, bead_name2 = key
+        masses_1.append(1.0 if bead_name1 == 'BB' else 0.1)
+        masses_2.append(1.0 if bead_name2 == 'BB' else 0.1)
         targets.append(target_distances[key])
         tolerances.append(target_tolerances[key])
     idcs_1 = torch.tensor(idcs_1, device=device)
     idcs_2 = torch.tensor(idcs_2, device=device)
+    masses_1 = torch.tensor(masses_1, device=device)
+    masses_2 = torch.tensor(masses_2, device=device)
     targets = torch.tensor(targets, device=device)
     tolerances = torch.tensor(tolerances, device=device)
-    
-    # Define the optimizer. Adam is a good general-purpose optimizer.
-    optimizer = optim.Adam([original_pos], lr=learning_rate)
 
     print(f"Starting optimization for {num_frames} frames...")
 
@@ -197,26 +199,44 @@ def minimize_bead_distances(ds, npz_ds, csv_filepath, force_constant=100.0, lear
 
         # --- Optimization Loop for the Current Frame ---
         for step in range(num_steps):
-            optimizer.zero_grad() # Clear gradients from the previous step
 
-            # Get the positions of the two beads for this connection using their indices
-            pos1 = current_frame_pos[idcs_1]
-            pos2 = current_frame_pos[idcs_2]
+            # Allocate gradient buffer
+            current_frame_pos.grad = torch.zeros_like(current_frame_pos)
 
-            # Calculate the current Euclidean distance between the two bead positions
-            current_distances = torch.linalg.norm(pos2 - pos1, dim=-1)
+            # Get bead positions
+            pos1 = current_frame_pos[idcs_1]  # [E, 3]
+            pos2 = current_frame_pos[idcs_2]  # [E, 3]
 
-            # Calculate the harmonic potential energy (loss) for this connection
-            # Loss = k * (current_distance - target_distance)^2
-            loss = force_constant * (torch.max(torch.tensor(0., device=targets.device), torch.abs(current_distances - targets) - tolerances))**2
-            loss = loss.mean()
+            # Compute displacement and distances
+            disp = pos2 - pos1  # [E, 3]
+            distances = torch.linalg.norm(disp, dim=-1, keepdim=True)  # [E, 1]
+            directions = disp / (distances + 1e-8)  # [E, 3]
 
-            # Perform backpropagation to compute gradients of the total loss
-            # with respect to the bead positions (current_frame_pos)
-            loss.backward()
+            # Compute displacement magnitude from target
+            deviation = distances.squeeze(-1) - targets  # [E]
+            clamped_dev = torch.clamp(torch.abs(deviation) - tolerances, min=0.0)  # [E]
+            forces_magnitude = 2 * force_constant * clamped_dev  # derivative of the squared loss
+            forces_magnitude = forces_magnitude.unsqueeze(-1)  # [E, 1]
 
-            # Update the bead positions using the optimizer and the computed gradients
-            optimizer.step()
+            # Total force vector (direction * magnitude)
+            force_vec = forces_magnitude * torch.sign(deviation).unsqueeze(-1) * directions  # [E, 3]
+
+            # Compute mass-weighted splits
+            inv_mass_sum = (1. / masses_1 + 1. / masses_2).unsqueeze(-1)  # [E, 1]
+            weight1 = (1. / masses_1).unsqueeze(-1) / inv_mass_sum  # [E, 1]
+            weight2 = (1. / masses_2).unsqueeze(-1) / inv_mass_sum  # [E, 1]
+
+            # Apply mass-weighted gradients manually
+            grad_pos1 = -weight1 * force_vec  # negative gradient
+            grad_pos2 =  weight2 * force_vec  # positive gradient
+
+            # Accumulate gradients (scattering manually)
+            current_frame_pos.grad.index_add_(0, idcs_1, grad_pos1)
+            current_frame_pos.grad.index_add_(0, idcs_2, grad_pos2)
+
+            # Apply manual update
+            with torch.no_grad():
+                current_frame_pos -= learning_rate * current_frame_pos.grad
 
             # Optional: Print the loss periodically to monitor optimization progress
             # if (step + 1) % 50 == 0:
@@ -226,7 +246,8 @@ def minimize_bead_distances(ds, npz_ds, csv_filepath, force_constant=100.0, lear
         # detach the tensor from the computation graph and convert it back to NumPy
         # to store in the results array.
         minimized_pos[frame_idx] = current_frame_pos.detach().numpy()
-        print(f"Finished optimizing frame {frame_idx + 1}. Final Loss: {loss.item():.4f}")
+        
+        print(f"Finished optimizing frame {frame_idx + 1}. Final Gradient Norm: {current_frame_pos.grad.norm().item():.4f}")
 
     npz_ds['bead_pos'] = minimized_pos
     print("Optimization process complete for all frames.")
