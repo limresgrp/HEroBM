@@ -25,7 +25,7 @@ TanhCutoff_n: 6
 num_basis: 8
 
 # - symmetry - #
-l_max: 3
+l_max: 2
 parity: o3_full
 
 # - general - #
@@ -34,7 +34,7 @@ normalize_b2a_rel_vec: true
 use_weight_norm: false
 
 # - interaction layers - #
-num_layers: 3
+num_layers: 2
 latent_dim: 128
 env_embed_multiplicity: 32
 
@@ -82,7 +82,7 @@ head_mlp_nonlinearity: swiglu
 # - train - #
 dataset_list:
   - dataset: npz
-    dataset_input: /home/angiod@usi.ch/HEroBM/tutorial/data/A2A/train # Folder containing all npz files to load as training dataset
+    dataset_input: /home/angiod@usi.ch/HEroBM/data/tutorial/A2A/npz/train # Folder containing all npz files to load as training dataset
     key_mapping:
       bead_types: node_types
       bead_pos: pos
@@ -94,10 +94,13 @@ dataset_list:
       bond_idcs: atom_bond_idx
       angle_idcs: atom_angle_idx
       atom_pos: atom_pos
+      edge_index: edge_index
+      bead_is_prev: bead_is_prev
+      bead_is_next: bead_is_next
 
 validation_dataset_list:
   - validation_dataset: npz
-    validation_dataset_input: /home/angiod@usi.ch/HEroBM/tutorial/data/A2A/valid # Folder containing all npz files to load as validation dataset
+    validation_dataset_input: /home/angiod@usi.ch/HEroBM/data/tutorial/A2A/npz/valid # Folder containing all npz files to load as validation dataset
     key_mapping:
       bead_types: node_types
       bead_pos: pos
@@ -109,6 +112,9 @@ validation_dataset_list:
       bond_idcs: atom_bond_idx
       angle_idcs: atom_angle_idx
       atom_pos: atom_pos
+      edge_index: edge_index
+      bead_is_prev: bead_is_prev
+      bead_is_next: bead_is_next
 
 # - register fields - #
 
@@ -119,30 +125,52 @@ node_fields:
   - lvl_idcs_mask
   - lvl_idcs_anchor_mask
 
+edge_fields:
+  - bead_is_prev
+  - bead_is_next
+
 extra_fields:
   - atom_pos
 
 type_names: # Use the type names suggested when building the dataset
+- SER_SC1
+- THR_SC1
+- TRP_SC1
+- TRP_SC2
+- TRP_SC3
+- TRP_SC4
+- TRP_SC5
+- TYR_SC1
+- TYR_SC2
+- TYR_SC4
+- TYR_SC3
+- VAL_SC1
 - ACE_RE
-- BB
+- PRO_BB
 - ALA_SC1
 - ARG_SC1
 - ARG_SC2
 - ASN_SC1
+- GLU_SC1
 - ASP_SC1
 - CYS_SC1
 - CYX_SC1
 - GLN_SC1
-- GLU_SC1
+- HID_SC1
+- HID_SC2
+- HID_SC3
+- HIE_SC1
+- HIE_SC2
+- HIE_SC3
+- HIS_SC1
+- HIS_SC2
+- HIS_SC3
 - HSD_SC1
 - HSD_SC2
 - HSD_SC3
 - HSE_SC1
 - HSE_SC2
 - HSE_SC3
-- HIS_SC1
-- HIS_SC2
-- HIS_SC3
 - ILE_SC1
 - LEU_SC1
 - LYS_SC1
@@ -153,23 +181,11 @@ type_names: # Use the type names suggested when building the dataset
 - PHE_SC2
 - PHE_SC3
 - PRO_SC1
-- SER_SC1
-- THR_SC1
-- TRP_SC1
-- TRP_SC2
-- TRP_SC3
-- TRP_SC4
-- TRP_SC5
-- TYR_SC1
-- TYR_SC2
-- TYR_SC3
-- TYR_SC4
-- VAL_SC1
 
 # - define node attributes - #
 node_attributes:
   node_types: # this kword must match the red kword in key_mapping
-    embedding_dimensionality: 64
+    embedding_dimensionality: 16
     fixed: true # if equal for each frame, if so they must not have the batch dim in the npz
   bead2atom_reconstructed_idcs:
     fixed: true
@@ -179,6 +195,15 @@ node_attributes:
     fixed: true
   lvl_idcs_anchor_mask:
     fixed: true
+
+# - define edge attributes - #
+edge_attributes:
+  bead_is_prev:
+    embedding_dimensionality: 8
+    num_types: 2
+  bead_is_next:
+    embedding_dimensionality: 8
+    num_types: 2
 
 # - define extra attributes - #
 extra_attributes:

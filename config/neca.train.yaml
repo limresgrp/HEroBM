@@ -1,5 +1,5 @@
 # - general - #
-root: results/neca
+root: /scratch/angiod/HEroBM/NECA/results/
 run_name: NECA.martini3
 experiment_description: "NECA dataset using Martini-like CG."
 
@@ -12,67 +12,64 @@ default_dtype: float32
 
 # -- network --
 model_builders:
-  # - herobm.backmapping.model.Model
   - HeadlessNodeModel
   - Heads
   - herobm.backmapping.model.HierarchicalReconstruction
 
+# - general - #
+use_weight_norm: false # Cannot jit compile when using this
+use_mace_product: false
+normalize_b2a_rel_vec: true
 # - cutoffs - #
-r_max: 7.0
+r_max: 16.0
 
 # - radial basis - #
 edge_radial_attrs_basis: geqtrain.nn.BesselBasisVec
 TanhCutoff_n: 6
-num_basis: 8
+num_basis: 16
 
 # - symmetry - #
 l_max: 3
 parity: o3_full
 
-# - general - #
-avg_num_neighbors: 30
-normalize_b2a_rel_vec: true
-use_weight_norm: false
-
 # - interaction layers - #
-num_layers: 2
-latent_dim: 32
+num_layers: 3
+latent_dim: 128
 env_embed_multiplicity: 8
 
-two_body_latent_mlp_latent_dimensions: [128]
-two_body_latent_mlp_nonlinearity: swiglu
-
-latent_mlp_latent_dimensions: [128]
-latent_mlp_nonlinearity: swiglu
-
-env_embed_mlp_latent_dimensions: [128]
-env_embed_mlp_nonlinearity: swiglu
+latent: geqtrain.nn.ScalarMLPFunction
+mlp_latent_dimensions: [256, 256]
+mlp_nonlinearity: swiglu
 
 # - attention - #
-interaction_use_attention: false
-# interaction_head_dim: 16
-
-# - products - #
-# use_mace_product: true
+interaction_use_attention: true
+interaction_head_dim: 64
 
 interaction_output_ls: [0, 1] # [Optional] used to avoid to compute l>1 as output of interaction, as I know I am not going to use l>1 later
-# ---  END interaction layers  --- #
-# --- START pooling layer --- #
-edge_pooling_use_attention: false
-# ---  END pooling layer  --- #
+
+# - pooling layer - #
+pooling_use_attention: false
 
 # --- START HEADS --- #
+head_wds: 0.001
+head_node_output_wd: true
 heads:
-  - [node_output, 7x1o]
+  head_output:
+    field: node_features
+    out_field: node_output
+    out_irreps: 7x1o
+    model: geqtrain.nn.ReadoutModule
 
 # --- head node_output --- #
 head_node_output_readout_latent: geqtrain.nn.ScalarMLPFunction
-head_node_output_mlp_latent_dimensions: [128]
+head_node_output_mlp_latent_dimensions: [256]
 head_mlp_nonlinearity: swiglu
 
 # ---  END HEADS  --- #
 
 # --- D A T A S E T --- #
+
+dataset_num_workers: 1
 
 # - train - #
 dataset_list:
@@ -88,6 +85,7 @@ dataset_list:
       lvl_idcs_anchor_mask: lvl_idcs_anchor_mask
       bond_idcs: atom_bond_idx
       angle_idcs: atom_angle_idx
+      torsion_idcs: atom_dihedral_idx
       atom_pos: atom_pos
 
 # - register fields - #
@@ -116,7 +114,7 @@ type_names:
 # - define node attributes - #
 node_attributes:
   node_types: # this kword must match the red kword in key_mapping
-    embedding_dimensionality: 32
+    embedding_dimensionality: 16
     fixed: true # if equal for each frame, if so they must not have the batch dim in the npz
   bead2atom_reconstructed_idcs:
     fixed: true
@@ -133,6 +131,8 @@ extra_attributes:
     fixed: true
   atom_angle_idx:
     fixed: true
+  atom_dihedral_idx:
+    fixed: true
 
 target_names: ['atom_pos']
 target_key: atom_pos
@@ -141,11 +141,11 @@ target_key: atom_pos
 
 loss_coeffs:
   - atom_pos:              # Loss on reconstructed atoms RMSD
-    - .5
-    - MSELoss
+    - 1.0
+    - geqtrain.train.SimpleLossWithNaNsFilter
     - ignore_nan: true
   - atom_pos:              # Loss on bond and angle values of reconstructed atoms
-    - .5
+    - .05
     - herobm.backmapping.train.InvariantsLoss
     - ignore_nan: true
       ignore_zeroes: true
@@ -154,7 +154,7 @@ loss_coeffs:
 
 metrics_components:
   - atom_pos: # Loss on reconstructed atoms RMSD
-    - herobm.backmapping.train.RMSDLoss
+    - geqtrain.train.RMSDLoss
     - ignore_nan: true
 
 # --- L O G G I N G --- #
@@ -173,7 +173,7 @@ dataloader_num_workers: 1
 skip_chunking: true
 # batch_max_atoms: 3000               # Limit the maximum number of nodes of a graph to be loaded on memory in a single batch
 
-max_epochs: 10000
+max_epochs: 50
 learning_rate: 1.0e-4
 # noise: 0.05
 train_val_split: random
@@ -193,16 +193,19 @@ optimizer_params:
 # use_grokfast: true
 sanitize_gradients: true
 use_warmup: true
-warmup_epochs: 5
+warmup_epochs: 2
 
 # - scheduler - #
-lr_scheduler_name: ReduceLROnPlateau
-lr_scheduler_patience: 10
-lr_scheduler_factor: 0.5
+lr_scheduler_name: CosineAnnealingLR
+lr_scheduler_min_lr: 1.e-6
+# # drop lr if no improvement for tot epochs
+# lr_scheduler_name: ReduceLROnPlateau
+# lr_scheduler_patience: 10
+# lr_scheduler_factor: 0.7
 
 # - early stopping - #
 early_stopping_lower_bounds:
   LR: 1.0e-7
 
 early_stopping_patiences:
-  validation_loss: 50
+  validation_loss: 10
