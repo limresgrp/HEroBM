@@ -219,11 +219,11 @@ target_key: atom_pos
 
 loss_coeffs:
   - atom_pos:              # Loss on reconstructed atoms RMSD
-    - .5
-    - MSELoss
+    - .9
+    - geqtrain.train.SimpleLossWithNaNsFilter
     - ignore_nan: true
   - atom_pos:              # Loss on bond and angle values of reconstructed atoms
-    - .5
+    - .1
     - herobm.backmapping.train.InvariantsLoss
     - ignore_nan: true
 
