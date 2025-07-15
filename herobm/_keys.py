@@ -40,6 +40,7 @@ BEAD2ATOM_RECONSTRUCTED_IDCS:  Final[str] = "bead2atom_reconstructed_idcs"
 BEAD2ATOM_RECONSTRUCTED_WEIGHTS:  Final[str] = "bead2atom_reconstructed_weights"
 
 EDGE_INDEX:  Final[str] = "edge_index"
+EDGE_CELL_SHIFT:  Final[str] = "edge_cell_shift"
 BEAD_IS_PREV:  Final[str] = "bead_is_prev"
 BEAD_IS_NEXT:  Final[str] = "bead_is_next"
 

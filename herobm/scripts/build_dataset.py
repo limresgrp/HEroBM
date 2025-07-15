@@ -44,7 +44,7 @@ def build_dataset(args_dict):
         head_output:
             field: node_features
             out_field: node_output
-            out_irreps: {mapping.bead_reconstructed_size}x1o
+            out_irreps: {mapping.bead_reconstructed_size}x1e
             model: geqtrain.nn.ReadoutModule
     
     type_names:\n'''

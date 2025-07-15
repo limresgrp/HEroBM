@@ -6,20 +6,34 @@ from herobm.mapper.bead import HEroBMBeadMappingAtomSettings, HEroBMBeadMappingS
 import pandas as pd
 
 
-def list2maskedarray(x):
-    # Find the maximum number of edges across all edge_index arrays
-    max_dim = max(e.shape[-1] for e in x)
+def list2maskedarray(x, dim=-1):
+    # Find the maximum size along the selected dim
+    max_dim = max(e.shape[dim] for e in x)
     num_graphs = len(x)
     dims = x[0].shape
 
-    # Initialize masked array with -1
-    x_padded = np.full((num_graphs, *dims[:-1], max_dim), -1, dtype=x[0].dtype)
+    # Prepare output shape
+    out_shape = list(dims)
+    out_shape[dim] = max_dim
+    out_shape = [num_graphs] + out_shape
 
-    # Fill in the values
+    # Initialize masked array with -1
+    x_padded = np.full(out_shape, -1, dtype=x[0].dtype)
+    mask = np.ones(out_shape, dtype=bool)
+
+    # Fill in the values and mask
     for i, e in enumerate(x):
-        x_padded[i, ..., :e.shape[-1]] = e
-    
-    return x_padded
+        # Prepare slices for assignment
+        slices = [i]
+        for d, s in enumerate(e.shape):
+            if d == dim or len(dims) + dim == d:
+                slices.append(slice(0, s))
+            else:
+                slices.append(slice(None))
+        x_padded[tuple(slices)] = e
+        mask[tuple(slices)] = False
+
+    return np.ma.masked_array(x_padded, mask=mask)
 
 class HierarchicalMapper(Mapper):
 
@@ -39,6 +53,7 @@ class HierarchicalMapper(Mapper):
     _torsion_idcs: np.ndarray = None
 
     _edge_index: np.ndarray = None
+    _edge_cell_shift: np.ndarray = None
     _cutoff: float = None
 
     @property
@@ -78,19 +93,29 @@ class HierarchicalMapper(Mapper):
         from geqtrain.data.AtomicData import neighbor_list
         from torch import from_numpy
         edge_index = []
-        for pos in self._bead_positions:
+        edge_cell_shift = []
+        for pos, cell in zip(self._bead_positions, self._cell):
             _edge_index, _edge_cell_shift, _cell = neighbor_list(
-                pos=from_numpy(pos),
-                r_max=cutoff,
-                cell=None,
-                pbc=(False, False, False),
+            pos=from_numpy(pos),
+            r_max=cutoff,
+            cell=cell,
+            pbc=self._pbc,
             )
             _edge_index = _edge_index.numpy()
+            _edge_cell_shift = _edge_cell_shift.numpy()
             edge_index.append(_edge_index)
+            edge_cell_shift.append(_edge_cell_shift)
         
         self._cutoff == cutoff
         self._edge_index = list2maskedarray(edge_index)
+        self._edge_cell_shift = list2maskedarray(edge_cell_shift, dim=-2)
         return self._edge_index
+    
+    def edge_cell_shift(self, cutoff):
+        if self._edge_cell_shift is not None and self._cutoff == cutoff:
+            return self._edge_cell_shift
+        self.edge_index(cutoff)
+        return self._edge_cell_shift
     
     @property
     def bead_is_prev(self):
@@ -135,6 +160,7 @@ class HierarchicalMapper(Mapper):
         if cutoff is not None:
             dataset.update({k: v for k, v in {
                 DataDict.EDGE_INDEX: self.edge_index(cutoff),
+                DataDict.EDGE_CELL_SHIFT: self.edge_cell_shift(cutoff),
                 DataDict.BEAD_IS_PREV: self.bead_is_prev,
                 DataDict.BEAD_IS_NEXT: self.bead_is_next,
             }.items() if v is not None})
