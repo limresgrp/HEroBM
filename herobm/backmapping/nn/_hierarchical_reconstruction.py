@@ -15,16 +15,18 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
         self,
         func: GraphModuleMixin,
         num_types: int,
-        in_field: str = AtomicDataDict.NODE_OUTPUT_KEY,
+        in_field: str = AtomicDataDict.NODE_FEATURES_KEY,
         out_field: str = DataDict.ATOM_POSITION,
         out_field_irreps: Irreps = Irreps("1x1o"),
         normalize_b2a_rel_vec: bool = True,
+        recenter: bool = True,
     ):
         super().__init__()
         self.func = func
         self.in_field = in_field
         self.out_field = out_field
         self.normalize_b2a_rel_vec = normalize_b2a_rel_vec
+        self.recenter = recenter
 
         irreps_out = func.irreps_out
         irreps_out.update({
@@ -125,14 +127,28 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
                     reconstructed_atom_pos[mask_row + bead_pos_from, b2a_idcs[mask_row, mask_col] + atom_pos_from] = updated_pos
             
             # Re-center predicted atoms' center of mass to the actual bead position
-            predicted_atoms_cm = scatter(
-                reconstructed_atom_pos[b2a_idcs_row + bead_pos_from, b2a_idcs[b2a_idcs_row, b2a_idcs_col] + atom_pos_from] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
-                b2a_idcs_row,
-                dim=0,
-                dim_size=len(batch_center_atoms),
-            )
-            atom_shifts = predicted_atoms_cm - bead_pos[batch_center_atoms]
-            reconstructed_atom_pos[b2a_idcs_row + bead_pos_from, b2a_idcs[b2a_idcs_row, b2a_idcs_col] + atom_pos_from] -= atom_shifts[b2a_idcs_row]
+            if self.recenter:
+                predicted_atoms_cm = scatter(
+                    reconstructed_atom_pos[b2a_idcs_row + bead_pos_from, b2a_idcs[b2a_idcs_row, b2a_idcs_col] + atom_pos_from] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
+                    b2a_idcs_row,
+                    dim=0,
+                    dim_size=len(batch_center_atoms),
+                )
+                atom_shifts = predicted_atoms_cm - bead_pos[batch_center_atoms]
+                reconstructed_atom_pos[b2a_idcs_row + bead_pos_from, b2a_idcs[b2a_idcs_row, b2a_idcs_col] + atom_pos_from] -= atom_shifts[b2a_idcs_row]
         
-        data[self.out_field] = torch.nanmean(reconstructed_atom_pos, dim=0)
+        atom_pos = torch.nanmean(reconstructed_atom_pos, dim=0)
+        if AtomicDataDict.PBC_KEY in data and AtomicDataDict.CELL_KEY in data:
+            cell = data[AtomicDataDict.CELL_KEY]
+            # Compute cell_shift for each atom position
+            # atom_pos is in Cartesian coordinates; convert to fractional, wrap, and convert back
+            # cell: (N, 3, 3), atom_pos: (num_atoms, 3)
+            # Convert atom_pos to fractional coordinates
+            cell_inv = torch.inverse(cell)  # (N, 3, 3)
+            atom_pos_frac = torch.einsum("nj,nji->ni", atom_pos, cell_inv)
+            # Wrap fractional coordinates into [0, 1)
+            atom_pos_frac_wrapped = atom_pos_frac % 1.0
+            # Convert back to Cartesian coordinates
+            atom_pos = torch.einsum("ni,nij->nj", atom_pos_frac_wrapped, cell)
+        data[self.out_field] = atom_pos
         return data

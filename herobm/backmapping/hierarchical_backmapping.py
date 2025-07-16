@@ -173,7 +173,7 @@ class HierarchicalBackmapping:
                     pos_list = results.get(DataDict.BEAD_POSITION)
                     pos_list.append(out[AtomicDataDict.POSITIONS_KEY].cpu().numpy())
                     rvp_list = results.get(DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED)
-                    rvp_list.append(out[AtomicDataDict.NODE_OUTPUT_KEY].cpu().numpy())
+                    rvp_list.append(out[AtomicDataDict.NODE_FEATURES_KEY].cpu().numpy())
                     app_list = results.get(DataDict.ATOM_POSITION_PRED)
                     app_list.append(np.expand_dims(out[DataDict.ATOM_POSITION].cpu().numpy(), axis=0))
                 
