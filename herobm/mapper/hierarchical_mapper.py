@@ -118,6 +118,19 @@ class HierarchicalMapper(Mapper):
         return self._edge_cell_shift
     
     @property
+    def bead_is_same(self):
+        assert self._edge_index is not None
+        _bead_is_same = []
+        bead_resnumbers = self._bead_resnums
+        bead_chainids = self._bead_segids
+        for _edge_index in self._edge_index:
+            resnumbers = bead_resnumbers[_edge_index]
+            chainids = bead_chainids[_edge_index]
+            is_same = ((resnumbers[1] - resnumbers[0]) == 0) * (chainids[1] == chainids[0]) * (_edge_index[0] > -1)
+            _bead_is_same.append(is_same)
+        return np.stack(_bead_is_same, axis=0)
+
+    @property
     def bead_is_prev(self):
         assert self._edge_index is not None
         _bead_is_prev = []
@@ -161,6 +174,7 @@ class HierarchicalMapper(Mapper):
             dataset.update({k: v for k, v in {
                 DataDict.EDGE_INDEX: self.edge_index(cutoff),
                 DataDict.EDGE_CELL_SHIFT: self.edge_cell_shift(cutoff),
+                DataDict.BEAD_IS_SAME: self.bead_is_same,
                 DataDict.BEAD_IS_PREV: self.bead_is_prev,
                 DataDict.BEAD_IS_NEXT: self.bead_is_next,
             }.items() if v is not None})

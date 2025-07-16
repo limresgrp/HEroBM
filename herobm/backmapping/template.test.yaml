@@ -17,6 +17,7 @@ test_dataset_list:
       angle_idcs: atom_angle_idx
       atom_pos: atom_pos
       edge_index: edge_index
+      bead_is_same: bead_is_same
       bead_is_prev: bead_is_prev
       bead_is_next: bead_is_next
 
@@ -28,8 +29,19 @@ node_fields:
   - lvl_idcs_anchor_mask
 
 edge_fields:
+  - bead_is_same
   - bead_is_prev
   - bead_is_next
+
+fixed_fields:
+  - node_types
+  - bead2atom_reconstructed_idcs
+  - bead2atom_reconstructed_weights
+  - lvl_idcs_mask
+  - lvl_idcs_anchor_mask
+  - atom_bond_idx
+  - atom_angle_idx
+  - atom_dihedral_idx
 
 extra_fields:
   - atom_pos
