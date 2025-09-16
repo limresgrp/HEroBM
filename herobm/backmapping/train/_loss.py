@@ -1,7 +1,5 @@
 import torch
-
 from geqtrain.data import AtomicDataDict
-
 from herobm.utils.geometry import get_bonds, get_angles, get_dihedrals
 
 class InvariantsLoss:
