@@ -31,7 +31,7 @@ from geqtrain.utils._global_options import register_all_fields
 from geqtrain.data import AtomicDataDict
 from geqtrain.data._build import dataset_from_config
 from geqtrain.data.dataloader import DataLoader
-from geqtrain.scripts.deploy import load_deployed_model, CONFIG_KEY
+from geqtrain.utils.deploy import load_deployed_model, CONFIG_KEY
 from geqtrain.train.components.inference import run_inference
 
 

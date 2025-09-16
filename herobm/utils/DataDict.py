@@ -10,3 +10,7 @@ PROTEIN_RESNAMES = [
     'HID', 'HIS', 'ILE', 'LEU', 'LYS', 'MET', 'SER', 'CYS',
     'TRP', 'TYR', 'GLN', 'PHE', 'PRO', 'THR', 'VAL',
 ]
+
+MAPPING_KEY: Final[str] = "mapping"
+BEAD_TYPES_KEY: Final[str] = "bead_types_filename"
+BEAD_STATS_KEY: Final[str] = "bead_stats"

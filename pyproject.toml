@@ -27,4 +27,5 @@ include = ["herobm", "herobm.*"]
 
 [project.scripts]
 herobm-dataset = "herobm.scripts.build_dataset:main"
+herobm-deploy  = "herobm.scripts.deploy:main"
 herobm-backmap = "herobm.scripts.run_backmapping:main"
