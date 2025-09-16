@@ -13,31 +13,22 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
 
     def __init__(
         self,
-        func: GraphModuleMixin,
         num_types: int,
-        in_field: str = AtomicDataDict.NODE_FEATURES_KEY,
-        out_field: str = DataDict.ATOM_POSITION,
-        out_field_irreps: Irreps = Irreps("1x1o"),
+        in_field: str = "node_output",
+        out_field_irreps: Irreps = Irreps("1x1e"),
         normalize_b2a_rel_vec: bool = True,
         recenter: bool = True,
+        irreps_in = None,
     ):
         super().__init__()
-        self.func = func
         self.in_field = in_field
-        self.out_field = out_field
+        self.out_field = DataDict.ATOM_POSITION
         self.normalize_b2a_rel_vec = normalize_b2a_rel_vec
         self.recenter = recenter
 
-        irreps_out = func.irreps_out
-        irreps_out.update({
-            self.out_field: out_field_irreps,
-        })
 
-        irreps_in = func.irreps_in
-
-        hierarchy_irreps = Irreps(f"{func.irreps_out[in_field].num_irreps}x0e")
+        hierarchy_irreps = Irreps(f"{irreps_in[in_field].num_irreps}x0e")
         irreps_in.update({
-            "atom_pos": Irreps("1x1o"),
             "bead2atom_reconstructed_idcs": hierarchy_irreps,
             "bead2atom_reconstructed_weights": hierarchy_irreps,
             "lvl_idcs_mask": hierarchy_irreps,
@@ -47,24 +38,17 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
         self._init_irreps(
             irreps_in=irreps_in,
             my_irreps_in={
-                in_field: func.irreps_out[in_field],
                 "atom_pos": Irreps("1x1o"),
             },
-            irreps_out=irreps_out,
+            irreps_out={self.out_field: out_field_irreps},
         )
 
-        self.reshape = reshape_irreps(func.irreps_out[in_field])
+        self.reshape = reshape_irreps(self.irreps_in[in_field])
 
         if self.normalize_b2a_rel_vec:
             self.atom_type2bond_lengths = torch.nn.Parameter(torch.ones((num_types + 1, self.irreps_out[in_field].num_irreps, 1), dtype=torch.float32))
 
     def forward(self, data: AtomicDataDict.Type) -> AtomicDataDict.Type:
-        if AtomicDataDict.NOISE_KEY in data:
-            data[AtomicDataDict.POSITIONS_KEY] += data[AtomicDataDict.NOISE_KEY]
-        data = self.func(data)
-        if AtomicDataDict.NOISE_KEY in data:
-            data[AtomicDataDict.POSITIONS_KEY] -= data[AtomicDataDict.NOISE_KEY]
-
         bead2atom_relative_vectors = self.reshape(data[self.in_field])
         if torch.any(torch.isnan(bead2atom_relative_vectors)):
             raise Exception("NaN")
@@ -72,10 +56,18 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
         bead_pos = data[AtomicDataDict.POSITIONS_KEY]
         bead_pos_slices        = data.get("pos_slices")
         assert bead_pos_slices is not None, "'pos_slices' must be in data"
-        atom_pos_slices        = data.get("atom_pos_slices")
-        assert atom_pos_slices is not None, "'atom_pos_slices' must be in data"
         idcs_mask              = data.get("bead2atom_reconstructed_idcs")
         assert idcs_mask is not None, "'bead2atom_reconstructed_idcs' must be in data"
+        
+        # JIT-friendly fix for default value creation:
+        # Avoid .item() as it breaks the computation graph for TorchScript.
+        # Instead, we check for the key and create the default tensor using pure tensor operations.
+        atom_pos_slices = data.get("atom_pos_slices")
+        if atom_pos_slices is None:
+            max_idx = idcs_mask.max() + 1
+            zero = torch.tensor(0, device=bead_pos.device, dtype=torch.long)
+            atom_pos_slices = torch.stack([zero, max_idx])
+        
         idcs_mask_slices       = data.get("bead2atom_reconstructed_idcs_slices")
         assert idcs_mask_slices is not None, "'bead2atom_reconstructed_idcs_slices' must be in data"
         weights                = data.get("bead2atom_reconstructed_weights")

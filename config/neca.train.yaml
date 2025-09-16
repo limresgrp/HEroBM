@@ -1,6 +1,6 @@
 # - general - #
 root: /scratch/angiod/HEroBM/NECA/results/
-run_name: NECA.martini3
+run_name: NECA.martini3.Sep.2025.r6
 experiment_description: "NECA dataset using Martini-like CG."
 
 seed: 42
@@ -12,28 +12,31 @@ default_dtype: float32
 
 # -- network --
 model_builders:
-  - HeadlessNodeModel
+  - NodeModel
   - Heads
   - herobm.backmapping.model.HierarchicalReconstruction
 
 # - general - #
 use_weight_norm: false # Cannot jit compile when using this
+strict_irreps: false
+scalar_attnt: false
+use_attention: false
 use_mace_product: false
 normalize_b2a_rel_vec: true
 # - cutoffs - #
-r_max: 16.0
+r_max: 6.0
 
 # - radial basis - #
 edge_radial_attrs_basis: geqtrain.nn.BesselBasisVec
 TanhCutoff_n: 6
-num_basis: 16
+num_basis: 8
 
 # - symmetry - #
-l_max: 3
-parity: o3_full
+l_max: 2
+parity: so3
 
 # - interaction layers - #
-num_layers: 3
+num_layers: 2
 latent_dim: 128
 env_embed_multiplicity: 8
 
@@ -42,7 +45,7 @@ mlp_latent_dimensions: [256, 256]
 mlp_nonlinearity: swiglu
 
 # - attention - #
-interaction_use_attention: true
+interaction_use_attention: false
 interaction_head_dim: 64
 
 interaction_output_ls: [0, 1] # [Optional] used to avoid to compute l>1 as output of interaction, as I know I am not going to use l>1 later
@@ -57,7 +60,7 @@ heads:
   head_output:
     field: node_features
     out_field: node_output
-    out_irreps: 7x1o
+    out_irreps: 7x1e
     model: geqtrain.nn.ReadoutModule
 
 # --- head node_output --- #
@@ -72,7 +75,7 @@ head_mlp_nonlinearity: swiglu
 dataset_num_workers: 1
 
 # - train - #
-dataset_list:
+train_dataset_list:
   - dataset: npz
     dataset_input: data/tutorial/NECA/npz
     key_mapping:
@@ -142,7 +145,7 @@ target_key: atom_pos
 loss_coeffs:
   - atom_pos:              # Loss on reconstructed atoms RMSD
     - 1.0
-    - geqtrain.train.SimpleLossWithNaNsFilter
+    - MSELoss
     - ignore_nan: true
   - atom_pos:              # Loss on bond and angle values of reconstructed atoms
     - .05
@@ -154,7 +157,7 @@ loss_coeffs:
 
 metrics_components:
   - atom_pos: # Loss on reconstructed atoms RMSD
-    - geqtrain.train.RMSDLoss
+    - RMSDMetric
     - ignore_nan: true
 
 # --- L O G G I N G --- #
@@ -173,7 +176,7 @@ dataloader_num_workers: 1
 skip_chunking: true
 # batch_max_atoms: 3000               # Limit the maximum number of nodes of a graph to be loaded on memory in a single batch
 
-max_epochs: 50
+max_epochs: 100
 learning_rate: 1.0e-4
 # noise: 0.05
 train_val_split: random

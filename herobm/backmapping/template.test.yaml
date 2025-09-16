@@ -3,8 +3,8 @@ root: {ROOT}
 # --- D A T A S E T --- #
 
 test_dataset_list:
-  - test_dataset: npz
-    test_dataset_input: {TEST_DATASET_INPUT}
+  - dataset: npz
+    dataset_input: {TEST_DATASET_INPUT}
     key_mapping:
       bead_types: node_types
       bead_pos: pos

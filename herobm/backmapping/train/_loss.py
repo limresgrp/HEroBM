@@ -1,11 +1,13 @@
 import torch
 
 from geqtrain.data import AtomicDataDict
-from geqtrain.train._loss import SimpleLoss
 
 from herobm.utils.geometry import get_bonds, get_angles, get_dihedrals
 
-class InvariantsLoss(SimpleLoss):
+class InvariantsLoss:
+
+    def __init__(self, **kwargs):
+        pass
 
     def __call__(
         self,
