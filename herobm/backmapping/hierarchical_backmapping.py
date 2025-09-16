@@ -257,7 +257,7 @@ class HierarchicalBackmapping:
             cg_u = build_CG(backmapping_dataset, n_frames, self.mapping.selection.dimensions)
             cg_u.trajectory[frame_index]
             cg_sel = cg_u.select_atoms('all')
-            cg_sel.positions = np.nan_to_num(backmapping_dataset[DataDict.BEAD_POSITION][frame_index])
+            cg_sel.positions = np.nan_to_num(backmapping_dataset[DataDict.BEAD_POSITION])
             cg_filename = join(self.output_folder, f"{prefix}.CG_{frame_index}.pdb")
             with mda.Writer(cg_filename, n_atoms=cg_sel.atoms.n_atoms) as w:
                 w.write(cg_sel.atoms)
