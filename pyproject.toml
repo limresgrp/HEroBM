@@ -15,6 +15,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 dynamic = ["version"]
+dependencies = [
+    "pandas"
+]
 
 [tool.setuptools.dynamic]
 version = {attr = "herobm._version.__version__"}
