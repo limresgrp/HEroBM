@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "herobm"
+authors = [
+    { name="Daniele Angioletti", email="daniele.angioletti@usi.ch" },
+]
+description = "HEroBM is a tool for back-mapping coarse-grained simulations to atomistic resolution."
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+dynamic = ["version"]
+
+[tool.setuptools.dynamic]
+version = {attr = "herobm._version.__version__"}
+
+[tool.setuptools.packages.find]
+include = ["herobm", "herobm.*"]
+
+[project.scripts]
+herobm-dataset = "herobm.scripts.build_dataset:main"
+herobm-backmap = "herobm.scripts.run_backmapping:main"

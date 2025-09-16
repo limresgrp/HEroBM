@@ -14,8 +14,6 @@ import warnings
 
 from tqdm import tqdm
 
-from herobm.scripts.run_inference import register_all_fields
-
 warnings.filterwarnings("ignore")
 
 from os.path import join, dirname, basename
@@ -29,6 +27,7 @@ from herobm.utils.io import replace_words_in_file
 
 from geqtrain.utils import Config
 from geqtrain.train.utils import evaluate_end_chunking_condition
+from geqtrain.utils._global_options import register_all_fields
 from geqtrain.data import AtomicDataDict
 from geqtrain.data._build import dataset_from_config
 from geqtrain.data.dataloader import DataLoader
