@@ -79,7 +79,7 @@ def main():
     model_group.add_argument("-mo", "--model", type=Path, required=True, help="Path to the trained/deployed model file (.pth).")
     model_group.add_argument("-m", "--mapping", type=str, help="Coarse-grain mapping to use. Overrides model metadata if provided.")
     model_group.add_argument("-b", "--bead-types-filename", type=Path, help="YAML file defining bead types. Overrides model metadata if provided.")
-    model_group.add_argument("--cg", action="store_false", dest="isatomistic", help="Flag if the input is already coarse-grained (not atomistic).")
+    model_group.add_argument("-a", "--atomistic", action="store_true", default=False, dest="isatomistic", help="Flag if the input is atomistic (not coarse-grained). Use to test model accuracy on MAP->BACKMAP.")
 
     processing_group = parser.add_argument_group("Processing and Selection Arguments")
     processing_group.add_argument("-s", "--selection", type=str, default="all", help="Atom selection string (MDAnalysis format).")
