@@ -41,15 +41,12 @@ To set up your environment and install all necessary packages, please follow the
         ```
 
 3.  **Clone and Install GEqTrain**:
-    Clone the GEqTrain repository and navigate into its directory.
+    Clone the GEqTrain repository, specifically the `herobm` branch, and navigate into its directory.
     ```bash
-    git clone [https://github.com/limresgrp/GEqTrain.git](https://github.com/limresgrp/GEqTrain.git)
+    git clone --branch herobm https://github.com/limresgrp/GEqTrain.git
     cd GEqTrain
     ```
-    Then, run the installation script. This will install PyTorch (allowing you to select your CUDA version or opt for CPU-only), along with all GEqTrain dependencies.
-    ```bash
-    ./install.sh
-    ```
+    Then, follow the instructions to install pytorch and all GEqTrain dependencies.
     Return to the parent directory after installation: `cd ..`
 
 4.  **Clone and Install CGMap**:
@@ -136,20 +133,21 @@ herobm-backmap [-h] [-m MAPPING] [-i INPUT] [-it INPUTTRAJ] [-o OUTPUT] [-s SELE
 
 **1. Backmapping Martini3 Proteins from a Single CG File:**
 
-This command will backmap the protein part of a Martini3 coarse-grained system from a single `.gro` or `.pdb` file. The output will be saved in the `backmapped/test` directory.
+This command will backmap the protein part of a Martini3 coarse-grained system from a single `.gro` or `.pdb` file. The output will be saved in the `backmapped/` directory. Note that many options (--mapping, --bead-types-filename and --bead-stats) are already embedded in deployed models, thus do not require being specified.
 
 ```bash
-herobm-backmap -m martini3 -i /path/to/your/cgfile.gro -o backmapped/test -s protein --cg -mo deployed/martini3.protein.v2.pth -d cuda:0 -b bead_types.bbcommon.yaml -bs cgdist.martini3.protein.csv
+herobm-backmap -m martini3 -i /path/to/your/cgfile.gro -o backmapped/ -s protein -mo deployed/martini3/protein.Sep.2025.pt -d cuda:0
 ```
 
-(Replace `/path/to/your/cgfile.gro` with the actual path to your coarse-grained input file. You can also specify `cuda:0` for a specific GPU or cpu for CPU-only computation. `cgdist.martini3.protein.csv` contains pairs of equilibrium distances that respect the expected CG distribution, and is used to minimize the CG structure before backmapping, thus improving the overall backmapping quality.)
+Replace `/path/to/your/cgfile.gro` with the actual path to your coarse-grained input file. You can also specify `cuda:0` for a specific GPU or cpu for CPU-only computation.
+If not using a deployed model with embedded bead_stats, you may want to specify `--bead-stats` to be a csv file containing pairs of equilibrium distances that respect the expected CG distribution. It and is used to minimize the CG structure before backmapping, thus improving the overall backmapping quality. The csv file can be created calling the herobm/scripts/cg_analysis.py script for your reference mapping and dataset.
 
 **2. Backmapping Martini2 Proteins from a CG Trajectory:**
 
-This example demonstrates how to backmap coarse-grained trajectories using the Martini2 force field. It will process all frames in the input trajectory and save the backmapped atomistic structures.
+This example demonstrates how to backmap coarse-grained trajectories using the Martini2 force field and a customly trained model. It will process all frames in the input trajectory and save the backmapped atomistic structures.
 
 ```bash
-herobm-backmap -m martini2 -i /path/to/your/cgtraj.gro -it /path/to/your/cgtraj.xtc -ts ::100 -o backmapped/test -s protein --cg -mo deployed/martini2.protein.v2.pth -d cuda:0 -b bead_types.bbcommon.yaml -bs cgdist.martini2.protein.csv
+herobm-backmap -m martini2 -i /path/to/your/cgtraj.gro -it /path/to/your/cgtraj.xtc -ts ::100 -o backmapped/ -s protein -mo training/myrun/best_model.pth -d cuda:0 -b bead_types.bbcommon.yaml -bs cgdist.martini2.protein.csv
 ```
 
-(Replace `/path/to/your/cgtraj.gro` with the actual path to your coarse-grained gro file and `/path/to/your/cgtraj.xtc` with the actual path to your coarse-grained trajectory file. the `-ts ::100` samples all the frames from the trajectory with a stride of 100. The `bead_types.bbcommon.yaml` file for Martini2 is the one present in the folder of CGMap repo.)
+Replace `/path/to/your/cgtraj.gro` with the actual path to your coarse-grained gro file and `/path/to/your/cgtraj.xtc` with the actual path to your coarse-grained trajectory file. the `-ts ::100` samples all the frames from the trajectory with a stride of 100. The `bead_types.bbcommon.yaml` file for Martini2 is the one present in the folder of CGMap repo, which assigns the same bead_type to all backbone beads, drastically immproving the backmapping results.
