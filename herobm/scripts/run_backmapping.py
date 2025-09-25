@@ -3,7 +3,7 @@ import logging
 from typing import Dict, Union
 from pathlib import Path
 from herobm.backmapping.hierarchical_backmapping import HierarchicalBackmapping, load_model
-from geqtrain.scripts.deploy import MAPPING_KEY, BEAD_TYPES_KEY, BEAD_STATS_KEY
+from herobm.utils.DataDict import MAPPING_KEY, BEAD_TYPES_KEY, BEAD_STATS_KEY
 from geqtrain.utils._global_options import register_all_fields
 
 def run_backmapping(

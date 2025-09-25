@@ -45,10 +45,10 @@ def load_model(model_path_str: str, device: str) -> Tuple[torch.jit.ScriptModule
         - The model's configuration (Config object).
         - A dictionary of metadata (empty if loaded from training).
     """
-    metadata = {}
+    metadata = {k: "" for k in DataDict._ALL_METADATA_KEYS}
     try:
         # First, try to load as a deployed model
-        model, metadata = load_deployed_model(model_path_str, device=device, freeze=False)
+        model, metadata = load_deployed_model(model_path_str, device=device, freeze=False, extra_metadata=metadata)
         # The config is stored as a YAML string within the metadata
         model_config_str = metadata.get(CONFIG_KEY, "{}")
         model_config = Config(yaml.safe_load(model_config_str))
