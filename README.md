@@ -1,153 +1,368 @@
-# HEroBM
-
 ![Alt text](logo.svg?raw=true "HEroBM")
 
 ## HEroBM: Reconstructing Atomistic Structures from Coarse-Grained Molecular Simulations
 
-This repository contains the code for HEroBM, a method designed to reconstruct atomistic structures from coarse-grained (CG) molecular simulations. HEroBM leverages deep equivariant graph neural networks and a hierarchical approach to achieve high accuracy, versatility, and efficiency. It is capable of handling diverse CG mappings and demonstrates transferability across systems of varying sizes.
 
-## Paper Reference
+This repository contains the code for **HEroBM**, a method designed to reconstruct atomistic structures from coarse-grained (CG) molecular simulations.
+
+HEroBM leverages **deep equivariant graph neural networks** and a **hierarchical approach** to achieve high accuracy, versatility, and efficiency. It is capable of handling diverse CG mappings and demonstrates transferability across systems of varying sizes.
+
+-----
+
+## 📖 Paper Reference
 
 For a detailed description of HEroBM and its underlying methodology, please refer to our paper:
+👉 [HEroBM: A deep equivariant graph neural network for high-fidelity backmapping from coarse-grained to all-atom structures](https://doi.org/10.1063/5.0280330)
 
-[HEroBM on arXiv](https://arxiv.org/abs/2404.16911)
+-----
 
----
+## 🚀 Installation Guide
 
-## Installation Guide
+Follow these steps to set up your environment for HEroBM.
 
-To set up your environment and install all necessary packages, please follow these steps:
+### Step 1: Create and Activate a Virtual Environment
 
-1.  **Create a Virtual Environment**:
-    Create a new virtual environment with Python version 3.8 or higher. Python 3.10 is suggested.
-    * Using `conda`:
-        ```bash
-        conda create -n "herobm" python=3.10
-        ```
-    * Using `venv`:
-        ```bash
-        python -m venv ./herobm-venv
-        ```
+It is highly recommended to use a dedicated virtual environment. **Python \>= 3.10** is suggested.
 
-2.  **Activate the Virtual Environment**:
-    Activate the newly created virtual environment.
-    * Using `conda`:
-        ```bash
-        conda activate herobm
-        ```
-    * Using `venv`:
-        ```bash
-        source herobm-venv/bin/activate
-        ```
+Using **conda**:
 
-3.  **Clone and Install GEqTrain**:
-    Clone the GEqTrain repository, specifically the `herobm` branch, and navigate into its directory.
-    ```bash
-    git clone --branch herobm https://github.com/limresgrp/GEqTrain.git
-    cd GEqTrain
-    ```
-    Then, follow the instructions to install pytorch and all GEqTrain dependencies.
-    Return to the parent directory after installation: `cd ..`
+```bash
+conda create -n "herobm"
+conda activate herobm
+```
 
-4.  **Clone and Install CGMap**:
-    Clone the CGMap repository and navigate into its directory.
-    ```bash
-    git clone [https://github.com/limresgrp/CGmap.git](https://github.com/limresgrp/CGmap.git)
-    cd CGmap
-    ```
-    Install CGMap and its required packages within your virtual environment.
-    ```bash
-    pip install -e .
-    ```
-    Return to the parent directory after installation: `cd ..`
+Using **venv**:
 
-5.  **Install HEroBM**:
-    Navigate back into the HEroBM folder and install HEroBM and its required packages.
-    ```bash
-    pip install -e .
-    ```
+```bash
+python -m venv ./herobm-venv
+source herobm-venv/bin/activate
+```
 
----
+### Step 2: Install Dependencies (GEqTrain & CGMap)
 
-**Note:** GEqTrain and CGMap repositories will soon be available as Conda packages, which will significantly streamline the installation process.
+HEroBM depends on two other packages: **GEqTrain** and **CGMap**.
 
----
+**Install GEqTrain:**
 
-## Running Backmapping using Deployed Models
+```bash
+git clone --branch herobm https://github.com/limresgrp/GEqTrain.git
+cd GEqTrain
+# !!! Follow instructions in the GEqTrain README to install PyTorch for your hardware 
+pip install -e .
+cd ..
+```
 
-The `herobm-backmap` command-line tool allows you to reconstruct atomistic structures from coarse-grained simulations using pre-trained HEroBM models. Below is a detailed explanation of its usage and available options.
+**Install CGMap:**
+
+```bash
+git clone https://github.com/limresgrp/CGmap.git
+cd CGmap
+pip install -e .
+cd ..
+```
+
+### Step 3: Install HEroBM
+
+```bash
+pip install -e .
+```
+
+-----
+
+## ▶️ Running Backmapping with Pre-trained Models
+
+The `herobm-backmap` command-line tool reconstructs atomistic structures from coarse-grained simulations.
+
+> **💡 Note on Deployed Models**
+> When you use a pre-trained, deployed model (`-mo path/to/deployed_model.pth`), key metadata is already embedded within the model file. **This means you often do not need to specify the `--mapping`, `--bead-types-filename`, or `--bead-stats` options**, as the model knows which settings it was trained with. You only need to provide these flags if you want to explicitly override the embedded metadata.
 
 ### Usage
 
 ```bash
-herobm-backmap [-h] [-m MAPPING] [-i INPUT] [-it INPUTTRAJ] [-o OUTPUT] [-s SELECTION] [-ts TRAJSLICE] [--cg] [-mo MODEL] [-b BEAD_TYPES_FILENAME] [-d DEVICE] [-bs BEAD_STATS] [-t TOLERANCE]
+herobm-backmap [-h] [-i INPUT] [-it INPUTTRAJ] [-o OUTPUT]
+               [-s SELECTION] [-ts TRAJSLICE] [-mo MODEL]
+               [-m MAPPING] [-b BEAD_TYPES_FILENAME]
+               [-a] [-d DEVICE] [-c CHUNKING]
+               [-bs BEAD_STATS] [-ns NUM_STEPS] [-t TOLERANCE]
 ```
 
-### Options
+### Key Options
 
-* `-h`, `--help`: Show the help message and exit.
+  * `-i, --input INPUT` → Input coarse-grained **or atomistic** structure file (`.gro`, `.pdb`).
+  * `-it, --inputtraj INPUTTRAJ` → Input trajectory file (`.xtc`, `.trr`).
+  * `-o, --output OUTPUT` → Output directory (default: `./output`).
+  * `-mo, --model MODEL` → Path to the trained/deployed HEroBM model (`.pth`).
+  * `-s, --selection SELECTION` → Atom selection (default: `all`).
+  * `-ts, --trajslice TRAJSLICE` → Slice trajectory (`start:stop:step`).
+  * `-a, --atomistic` → Flag if inputs are **atomistic** (for MAP→BACKMAP validation).
+  * `-d, --device DEVICE` → Torch device (default: `cuda:0`).
+  * `-c, --chunking N` → Process trajectory in chunks (max atoms per batch).
+  * `-ns, --num-steps INT` → Steps for CG minimization (default: `1000`).
+  * `-t, --tolerance FLOAT` → Energy tolerance for atomistic minimisation (default: `500.0`).
 
-* `-m MAPPING`, `--mapping MAPPING`:
-    Specifies the coarse-grained mapping scheme to be used (e.g., `martini3`, `martini2`).
-    * **Default:** `martini3`
+### Advanced Options (Metadata Overrides)
 
-* `-i INPUT`, `--input INPUT`:
-    Path to the input coarse-grained structure file (e.g., `.gro`, `.pdb`). This file defines the initial coarse-grained coordinates from which the atomistic structure will be reconstructed.
+  * `-m, --mapping MAPPING` → Specifies the CG mapping. It corresponds to a folder name containing the mapping's `.yaml` files. By default, the tool looks inside the `CGmap/cgmap/data/` directory, but you can also provide an **absolute path** to a custom mapping folder.
+  * `-b, --bead-types-filename FILE` → The YAML file inside the mapping folder that assigns a unique integer to each bead type. These integers are used as node features in the graph model. If a `bead_types.yaml` file is not found, one is created automatically. You can create custom files for different type assignments.
+    > **Example**: For Martini protein models, the deployed models use a custom `bead_types.bbcommon.yaml`. It assigns the **same integer** to all backbone (BB) beads, regardless of the residue type (e.g., `ALA_BB`, `ARG_BB`, and `GLY_BB` all get type `13`). This improves model transferability across different proteins. In contrast, the default `bead_types.yaml` would assign a different integer to each (`ALA_BB: 18`, `ARG_BB: 20`, etc.).
+  * `-bs, --bead-stats FILE` → Path to a CSV file containing soft distance restraints for connected CG beads. Providing this file enables an initial energy minimization of the input CG structure **before** backmapping. This significantly improves the quality of the final atomistic structure, especially when backmapping real CG trajectories. See the section below on how to generate this file.
 
-* `-it INPUTTRAJ`, `--inputtraj INPUTTRAJ`:
-    Path to the input coarse-grained trajectory file. Use this option when you want to backmap multiple frames from a simulation.
+-----
 
-* `-o OUTPUT`, `--output OUTPUT`:
-    Directory where the backmapped atomistic files will be saved.
+### Generating Bead Statistics (`--bead-stats`)
 
-* `-s SELECTION`, `--selection SELECTION`:
-    Allows you to specify a subset of the system (e.g., `protein`, `lipid`) for backmapping. This is useful for focusing reconstruction efforts on specific molecules or regions.
-    * **Default:** `all` (backmaps the entire system)
+The `--bead-stats` CSV file can be generated using the `cg_analysis.py` script included with HEroBM. This script takes one or more atomistic structure/trajectory files as input, maps them to the coarse-grained representation on-the-fly, and calculates distance statistics (mean, std, min, max) for connected beads.
 
-* `-ts TRAJSLICE`, `--trajslice TRAJSLICE`:
-    Defines a slice of the input trajectory to be processed. This is a string in the format `'start:stop:step'`, similar to Python list slicing. For example, `'900:1000:10'` would process frames from 900 to 990 (inclusive), taking every 10th frame.
+**Usage:**
 
-* `--cg`:
-    This flag **must be set** when your input file (`-i` or `-it`) is an actual coarse-grained structure or trajectory. It tells HEroBM to treat the input as coarse-grained data rather than an atomistic reference.
+Run the script from the HEroBM root directory, pointing it to your atomistic data.
 
-* `-mo MODEL`, `--model MODEL`:
-    Path to the pre-trained HEroBM model file (`.pth`). This specifies which trained neural network model to use for the backmapping process. Deployed models are typically located in the `deployed/` directory within the HEroBM installation.
+```bash
+python herobm/scripts/cg_analysis.py \
+    -i /path/to/atomistic/structures/struct.pdb \
+    -m martini3 \
+    -o cg_stats.martini3.csv
+```
 
-* `-b BEAD_TYPES_FILENAME`, `--bead-types-filename BEAD_TYPES_FILENAME`:
-    Path to a YAML file that defines the bead types assigned to each coarse-grained bead. This file is crucial for correctly mapping coarse-grained beads to their corresponding atomistic structures, especially when deployed models were trained with specific bead type assignments (e.g., assigning the same bead type to all backbone beads, or differentiating bead types based on their chemical environment). By default, HEroBM will use the `bead_types.yaml`, which assigns a unique bead type to each backbone bead of different residues. This can lead to incorrect backmapping if the model expects a different assignment.
-    * **Default:** `bead_types.yaml`
-    * **Important Note for Martini Models:** For Martini models (e.g., `martini2`, `martini3`), it is crucial to specify `bead_types.bbcommon.yaml`. This file ensures that the bead types used during backmapping align with those used during model training, where all backbone (BB) beads were assigned the same bead type. This file is located within the `CGMap` repository, specifically in the data folder for each Martini version (e.g., `cgmap/data/martini2/bead_types.bbcommon.yaml` or `cgmap/data/martini3/bead_types.bbcommon.yaml`).
+  * `-i`: Path to a structure input file containing atomistic system (usually format is `.pdb` or `.gro`). Can also specify a folder if having multiple pdbs and no trajectory.
+  * `-t`: Path to an input trajectory file to load in the structure input file.
+  * `-m`: The name of the CG mapping to use for the analysis.
+  * `-o`: The name of the output CSV file to be created.
 
-* `-d DEVICE`, `--device DEVICE`:
-    Specifies the PyTorch device to use for computation. You can choose between `cuda:N` (for a specific GPU, e.g., `cuda:0`, `cuda:1`) or `cpu` for CPU-only computation.
-    * **Default:** `cuda:0`
-
-* `-bs BEAD_STATS`, `--bead-stats BEAD_STATS`:
-    Path to a CSV file containing bead-to-bead distance statistics. Providing this file enables an initial minimization of bead positions before the full backmapping procedure, which can improve the quality of the reconstructed structures.
-
-* `-t TOLERANCE`, `--tolerance TOLERANCE`:
-    Energy tolerance for the minimization step, specified in kJ/(mol nm). This parameter controls how strictly the system is minimized to relax steric clashes after initial reconstruction.
-    * **Default:** `500.0`
+-----
 
 ### Examples
 
-**1. Backmapping Martini3 Proteins from a Single CG File:**
-
-This command will backmap the protein part of a Martini3 coarse-grained system from a single `.gro` or `.pdb` file. The output will be saved in the `backmapped/` directory. Note that many options (--mapping, --bead-types-filename and --bead-stats) are already embedded in deployed models, thus do not require being specified.
+**1. Backmapping a Single Martini3 Protein Structure (Metadata-Driven)**
 
 ```bash
-herobm-backmap -m martini3 -i /path/to/your/cgfile.gro -o backmapped/ -s protein -mo deployed/martini3/protein.Sep.2025.pt -d cuda:0
+herobm-backmap \
+    -i /path/to/cgfile.gro \
+    -o backmapped/ \
+    -s protein \
+    -mo deployed/martini3/protein.Sep.2025.pt \
+    -d cuda:0
 ```
 
-Replace `/path/to/your/cgfile.gro` with the actual path to your coarse-grained input file. You can also specify `cuda:0` for a specific GPU or cpu for CPU-only computation.
-If not using a deployed model with embedded bead_stats, you may want to specify `--bead-stats` to be a csv file containing pairs of equilibrium distances that respect the expected CG distribution. It and is used to minimize the CG structure before backmapping, thus improving the overall backmapping quality. The csv file can be created calling the herobm/scripts/cg_analysis.py script for your reference mapping and dataset.
+👉 Mapping, bead types, and bead stats will be loaded directly from the model's embedded metadata.
 
-**2. Backmapping Martini2 Proteins from a CG Trajectory:**
+**2. Backmapping a Martini2 Protein Trajectory with Overrides**
 
-This example demonstrates how to backmap coarse-grained trajectories using the Martini2 force field and a customly trained model. It will process all frames in the input trajectory and save the backmapped atomistic structures.
+Here, we explicitly provide the mapping, bead types, and bead stats, which will override any metadata in `best_model.pth`.
 
 ```bash
-herobm-backmap -m martini2 -i /path/to/your/cgtraj.gro -it /path/to/your/cgtraj.xtc -ts ::100 -o backmapped/ -s protein -mo training/myrun/best_model.pth -d cuda:0 -b bead_types.bbcommon.yaml -bs cgdist.martini2.protein.csv
+herobm-backmap \
+    -m martini2 \
+    -i /path/to/cgtraj.gro \
+    -it /path/to/cgtraj.xtc \
+    -ts ::100 \
+    -o backmapped/ \
+    -s protein \
+    -mo training/myrun/best_model.pth \
+    -b <path_to_cgmap>/cgmap/data/martini2/bead_types.bbcommon.yaml \
+    -bs cg_stats.martini2.protein.csv \
+    -ns 1500 \
+    -d cuda:0
 ```
 
-Replace `/path/to/your/cgtraj.gro` with the actual path to your coarse-grained gro file and `/path/to/your/cgtraj.xtc` with the actual path to your coarse-grained trajectory file. the `-ts ::100` samples all the frames from the trajectory with a stride of 100. The `bead_types.bbcommon.yaml` file for Martini2 is the one present in the folder of CGMap repo, which assigns the same bead_type to all backbone beads, drastically immproving the backmapping results.
+**3. Using Chunked Processing for Large Systems**
+
+```bash
+herobm-backmap \
+    -i huge_system.gro \
+    -it huge_system.xtc \
+    -o backmapped_large/ \
+    -mo deployed/martini3/large.pt \
+    -c 50000 \
+    -d cuda:0
+```
+
+---
+
+### 🧠 Creating a Training Dataset
+
+Before you can train your own HEroBM model, you need to create a dataset. This is done using the `herobm-dataset` script, which processes atomistic structures and/or trajectories, maps them to a coarse-grained representation, and saves the required data in `.npz` format for training.
+
+The core of this process is the `HierarchicalMapper`, which not only performs the coarse-graining but also calculates the hierarchical relationships and relative vectors between atoms and beads. This information is crucial for the model to learn how to reconstruct the fine-grained details from the coarse-grained input.
+
+#### Usage
+
+The script takes various arguments to specify the input files, the mapping scheme, and the output directory.
+
+```bash
+herobm-dataset [-h] -m MAPPING -i INPUT [-if INPUTFORMAT] [-t INPUTTRAJ] 
+               [-tf TRAJFORMAT] [-f FILTER] [-o OUTPUT] [-s SELECTION] 
+               [-ts TRAJSLICE] [-b BEAD_TYPES_FILENAME] [-c CUTOFF]
+```
+
+#### Key Options
+
+  * `-m, --mapping MAPPING`: **(Required)** The name of the CG mapping to use (e.g., `martini3`). This corresponds to a folder in the `cgmap/data` directory or an absolute path to a custom mapping folder.
+  * `-i, --input INPUT`: **(Required)** Path to the input folder containing atomistic structures (e.g., `.pdb`, `.gro`) or a single structure file.
+  * `-o, --output OUTPUT`: The output folder where the generated `.npz` files will be saved.
+  * `-s, --selection SELECTION`: An MDAnalysis selection string to specify which part of the system to process (e.g., `"protein"`). Default is `"all"`.
+  * `-it, --inputtraj INPUTTRAJ`: Path to an input trajectory file or a folder of trajectories.
+  * `-b, --bead-types-filename FILE`: The name of the bead types YAML file to use or create within the mapping directory. Default is `bead_types.yaml`.
+  * `-c, --cutoff CUTOFF`: (Recommended) A cutoff distance in Angstroms to pre-compute the graph edges (bead neighbors). This also includes information about preceding and following beads in a sequence, which is beneficial for training.
+
+#### Example
+
+This command processes all `.pdb` files in the `/path/to/atomistic/pdbs/` directory, filters them according to `targets.train.pdb`, applies the `martini3` mapping with common backbone bead types, and saves the output `.npz` files to `/path/to/output/npz/train`.
+
+```bash
+herobm-dataset \
+    -m martini3 \
+    -i /path/to/atomistic/pdbs/ \
+    -f /path/to/filters/targets.train.pdb \
+    -if pdb \
+    -s protein \
+    -o /path/to/output/npz/train \
+    -b bead_types.bbcommon.yaml \
+    -c 10.0
+```
+
+-----
+
+## 🏢 Deployment Guide for Shared Systems
+
+This guide outlines the **one-time setup** to make HEroBM available to all users on a shared system (e.g., `/apps/herobm`) via a self-contained Conda environment.
+
+### Part 1: One-Time Administrator Setup
+
+1. **Create the Installation Directory**
+
+```bash
+export HEROBM_ROOT=/apps/herobm
+sudo mkdir -p $HEROBM_ROOT
+sudo chown $USER $HEROBM_ROOT
+```
+
+2. **Set Up the Conda Environment**
+
+```bash
+cd $HEROBM_ROOT
+conda create --prefix ./env python=3.10 -y
+conda activate ./env
+```
+
+3. **Install Dependencies**
+
+```bash
+# From conda-forge
+conda install -c conda-forge pdbfixer -y
+
+# Install PyTorch (adjust CUDA version if needed)
+pip install torch --index-url https://download.pytorch.org/whl/cu118
+```
+
+4. **Install HEroBM and its Dependencies**
+
+```bash
+mkdir -p $HEROBM_ROOT/src && cd $HEROBM_ROOT/src
+
+git clone --branch herobm https://github.com/limresgrp/GEqTrain.git
+git clone https://github.com/limresgrp/CGmap.git
+git clone https://github.com/your-user/HEroBM.git   # Replace with correct URL
+
+pip install -e ./GEqTrain
+pip install -e ./CGmap
+pip install -e ./HEroBM
+
+conda deactivate
+```
+
+5. **Deploy the Activation Script**
+
+```bash
+chmod +x $HEROBM_ROOT/sourceme.sh
+```
+
+6. **(Optional) Deploy Models**
+
+```bash
+mkdir -p $HEROBM_ROOT/models
+# scp your-model.pth user@host:$HEROBM_ROOT/models/
+```
+
+7. **Finalize Permissions**
+
+```bash
+sudo chown -R root:root $HEROBM_ROOT
+sudo find $HEROBM_ROOT -type d -exec chmod 755 {} \;
+sudo find $HEROBM_ROOT -type f -exec chmod 644 {} \;
+sudo chmod +x $HEROBM_ROOT/sourceme.sh
+sudo chmod +x $HEROBM_ROOT/env/bin/*
+sudo chmod -R 777 "$HEROBM_ROOT/src/CGmap/cgmap/data/"
+```
+
+---
+
+### Part 2: End-User Instructions
+
+To use the centrally installed HEroBM:
+
+```bash
+# Load the environment
+source /apps/herobm/sourceme.sh
+
+# Check usage
+herobm-backmap --help
+
+# Example with deployed model
+herobm-backmap \
+    -i input.pdb \
+    -it trajectory.xtc \
+    -mo $HEROBM_MODELS_DIR/your-model.pth \
+    -o ./output_structures \
+    -s 'protein'
+
+# Deactivate when done
+conda deactivate
+```
+
+-----
+
+## 🔧 Activation Script (`sourceme.sh`)
+
+This script should be placed at `/apps/herobm/sourceme.sh`.
+
+```bash
+#!/bin/bash
+# ==============================================================================
+#  sourceme.sh for HEroBM
+# ==============================================================================
+#
+#  Purpose:
+#  Configures the shell environment to use HEroBM. It activates the Conda
+#  environment and sets variables for deployed models.
+#
+#  Usage:
+#  source /apps/herobm/sourceme.sh
+# ==============================================================================
+
+# Root directory
+export HEROBM_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Check environment
+if [ ! -d "$HEROBM_ROOT/env" ]; then
+    echo "ERROR: HEroBM environment not found at $HEROBM_ROOT/env" >&2
+    return 1
+fi
+
+# Activate environment
+echo "Activating HEroBM environment..."
+conda activate "$HEROBM_ROOT/env"
+
+# Model directory
+export HEROBM_MODELS_DIR="$HEROBM_ROOT/models"
+
+echo "=========================================================="
+echo " HEroBM Environment is now active."
+echo ""
+echo "  - Root Directory:    $HEROBM_ROOT"
+echo "  - Deployed Models:   $HEROBM_MODELS_DIR"
+echo ""
+echo "  Use 'herobm-backmap' to run backmapping."
+echo "  To deactivate: conda deactivate"
+echo "=========================================================="
+```
