@@ -94,7 +94,8 @@ class HierarchicalMapper(Mapper):
         from torch import from_numpy
         edge_index = []
         edge_cell_shift = []
-        for pos, cell in zip(self._bead_positions, self._cell):
+        for i, pos in enumerate(self._bead_positions):
+            cell = self._cell[i] if self._cell else None
             _edge_index, _edge_cell_shift, _cell = neighbor_list(
             pos=from_numpy(pos),
             r_max=cutoff,
@@ -102,13 +103,14 @@ class HierarchicalMapper(Mapper):
             pbc=self._pbc,
             )
             _edge_index = _edge_index.numpy()
-            _edge_cell_shift = _edge_cell_shift.numpy()
             edge_index.append(_edge_index)
-            edge_cell_shift.append(_edge_cell_shift)
+            if _edge_cell_shift:
+                _edge_cell_shift = _edge_cell_shift.numpy()
+                edge_cell_shift.append(_edge_cell_shift)
         
         self._cutoff == cutoff
         self._edge_index = list2maskedarray(edge_index)
-        self._edge_cell_shift = list2maskedarray(edge_cell_shift, dim=-2)
+        self._edge_cell_shift = list2maskedarray(edge_cell_shift, dim=-2) if edge_cell_shift else None
         return self._edge_index
     
     def edge_cell_shift(self, cutoff):
