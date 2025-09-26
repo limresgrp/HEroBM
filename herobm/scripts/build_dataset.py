@@ -1,57 +1,138 @@
 import argparse
-import json
 import torch
+import glob
+import os
 from pathlib import Path
+from multiprocessing import Pool, cpu_count
 
 from herobm.mapper import HierarchicalMapper
-from herobm.utils import DataDict
 
 torch.set_default_dtype(torch.float32)
 
-# EXAMPLE RUNS #
-# python build_dataset.py -m martini3_lipids -i /storage_common/angiod/POPC/ -t /storage_common/angiod/POPC/ -if gro -s "resname POPC" -tf trr -l 100 -o /storage_common/angiod/POPC/backmapping/npz/membrane/train/
-# python build_dataset.py -m martini3_bbcommon -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/martini3.bbcommon.2.9k/train
-# python build_dataset.py -m ca -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/ca.2.9k/train
-# python build_dataset.py -m martini3 -i /storage_common/angiod/PDB6K/pdb.6k/augment/ -f /storage_common/angiod/PDB6K/set/targets.train.pdb.2.9k -if pdb -s protein -o /storage_common/angiod/PDB6K/backmapping/npz/martini3.2.9k/train
+# This worker function processes a single file.
+# It will be executed in a separate process.
+def process_file(worker_args):
+    """
+    Worker function to process a single input file.
+    
+    Args:
+        worker_args (dict): A dictionary containing all the necessary arguments
+                            for processing one file, including 'input', 'inputtraj',
+                            and 'output'.
+    """
+    # Each worker gets its own HierarchicalMapper instance.
+    try:
+        input_file = worker_args['input']
+        output_file = worker_args['output']
+        
+        print(f"Starting processing for: {Path(input_file).name}")
+        
+        # We need to construct the full output path for the .npz file
+        p = Path(input_file)
+        output_dir = Path(output_file)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_filename = output_dir / (p.stem + '.npz')
 
+        # The mapper is initialized with args for a single file.
+        mapping = HierarchicalMapper(args_dict=worker_args)
+        
+        # The map() method processes the single file specified during init.
+        m = mapping.map() 
+        
+        if m is None:
+            print(f'Skipping {output_filename} due to an issue during mapping (e.g., >20000 atoms).')
+            return None
 
-def to_npz(dataset):
-    return {
-        k: v for k, v in dataset.items() if k in [
-            DataDict.ATOM_POSITION, DataDict.BEAD_POSITION, DataDict.ATOM_NAMES,
-            DataDict.BEAD_NAMES, DataDict.ATOM_TYPES, DataDict.BEAD_TYPES,
-            DataDict.BEAD2ATOM_RELATIVE_VECTORS, DataDict.BEAD_RESIDCS,
-            DataDict.BB_PHIPSI, DataDict.LEVEL_IDCS_MASK,
-            DataDict.LEVEL_IDCS_ANCHOR_MASK, DataDict.BEAD2ATOM_RECONSTRUCTED_IDCS,
-            DataDict.BEAD2ATOM_RECONSTRUCTED_WEIGHTS, DataDict.BOND_IDCS,
-            DataDict.ANGLE_IDCS, DataDict.CELL, DataDict.PBC
-        ]
-    }
+        m.save_npz(filename=str(output_filename), from_pos_unit='Angstrom', to_pos_unit='Angstrom')
+        print(f'✅ Successfully saved: {output_filename}')
+        return str(output_filename)
+    except Exception as e:
+        print(f"❌ Error processing {worker_args.get('input', 'unknown file')}: {e}")
+        return None
 
 def build_dataset(args_dict):
-    print("Building dataset...")
-    mapping = HierarchicalMapper(args_dict=args_dict)
+    print("Discovering files to process...")
+
+    # --- Step 1: File Discovery (moved from Mapper.__init__) ---
+    input_path = Path(args_dict["input"])
+    input_traj_path = Path(args_dict["inputtraj"]) if args_dict.get("inputtraj") else None
+
+    # Get a list of basenames to filter by, if a filter file is provided
+    input_basenames = None
+    if args_dict.get("filter"):
+        with open(args_dict["filter"], 'r') as f:
+            input_basenames = {line.strip() for line in f.readlines()}
+
+    # Find all input structure/topology files
+    if input_path.is_dir():
+        input_format = args_dict.get("inputformat", "*")
+        input_files = sorted(glob.glob(os.path.join(input_path, f"*.{input_format}")))
+    else:
+        input_files = [str(input_path)]
     
-    for m, output_filename in mapping(**args_dict):
-        if m is None:
-            print(f'File {output_filename} has more than 20000 atoms. Skipping.')
-            continue
-        m.save_npz(filename=output_filename, from_pos_unit='Angstrom', to_pos_unit='Angstrom')
-        print(f'File {output_filename} saved!')
+    # Filter files based on the filter list
+    if input_basenames:
+        input_files = [f for f in input_files if Path(f).stem in input_basenames]
+
+    # --- Prepare tasks for multiprocessing ---
+    tasks = []
+    for input_file in input_files:
+        # Create a copy of the original args for each task
+        task_args = args_dict.copy()
+        task_args['input'] = input_file
+        task_args['output'] = args_dict['output'] # Pass the output directory
+
+        # Find the corresponding trajectory file, if any
+        traj_file = None
+        if input_traj_path:
+            if input_traj_path.is_dir():
+                traj_format = args_dict.get("trajformat", "*")
+                # Look for a trajectory file with the same basename
+                potential_traj = input_traj_path / (Path(input_file).stem + f".{traj_format}")
+                if potential_traj.exists():
+                    traj_file = str(potential_traj)
+            else:
+                # If a single trajectory file is given, assume it applies to the (single) input
+                traj_file = str(input_traj_path)
+        
+        task_args['inputtraj'] = traj_file
+        tasks.append(task_args)
+
+    print(f"Found {len(tasks)} files to process.")
+
+    # --- Step 2: Run processing in a multiprocessing pool ---
+    # Use slightly fewer than the total number of CPUs to leave resources for the OS.
+    num_workers = args_dict.get('workers', None)
+    if num_workers is None:
+        num_workers = max(1, cpu_count()//2)
+    print(f"Starting multiprocessing with {num_workers} workers...")
     
-    config_update_text = f'''Update the training configuration file with the following snippet (excluding quotation marks):
-    heads:
-        head_output:
-            field: node_features
-            out_field: node_output
-            out_irreps: {mapping.bead_reconstructed_size}x1e
-            model: geqtrain.nn.ReadoutModule
-    
-    type_names:\n'''
-    for bt in {x[1]: x[0] for x in sorted(mapping.bead_types_dict.items(), key=lambda x: x[1])}.values():
-        config_update_text += f'- {bt}\n'
-    config_update_text += '"'
-    print(config_update_text)
+    with Pool(processes=num_workers) as pool:
+        results = pool.map(process_file, tasks)
+
+    successful_files = [r for r in results if r is not None]
+    print(f"\n--- All tasks completed. ---")
+    print(f"{len(successful_files)} out of {len(tasks)} files were processed successfully.")
+
+    # --- Step 3: Print summary based on the last processed configuration ---
+    # To get bead types and sizes, we can run one mapping in the main process
+    # or simply instantiate the mapper again.
+    if tasks:
+        print("\nGenerating configuration snippet...")
+        summary_mapper = HierarchicalMapper(args_dict=args_dict)
+        config_update_text = f'''Update the training configuration file with the following snippet:
+        heads:
+            head_output:
+                field: node_features
+                out_field: node_output
+                out_irreps: {summary_mapper.bead_reconstructed_size}x1e
+                model: geqtrain.nn.ReadoutModule
+        
+        type_names:\n'''
+        for bt in {x[1]: x[0] for x in sorted(summary_mapper.bead_types_dict.items(), key=lambda x: x[1])}.values():
+            config_update_text += f'- {bt}\n'
+        print(config_update_text)
+
     print("Success!")
 
 def parse_command_line(args=None):
@@ -84,6 +165,7 @@ def parse_command_line(args=None):
         "--inputformat",
         help="Format of input files to consider, e.g., 'pdb'.\n" +
              "By default takes all formats.",
+        default='*'
     )
     parser.add_argument(
         "-t",
@@ -137,13 +219,19 @@ def parse_command_line(args=None):
     )
     parser.add_argument('--isatomistic', action='store_true', default=True, help='Specify that the input is atomistic (default)')
     parser.add_argument('-cg', action='store_false', dest='isatomistic', help='Specify that the input is coarse-grained')
+    parser.add_argument(
+        "-w",
+        "--workers",
+        help="Number of parallel processes to run for building dataset",
+        type=int,
+        default=None,
+    )
 
     return parser.parse_args(args=args)
 
 def main(args=None):
     args_dict = parse_command_line(args)
     build_dataset(vars(args_dict))
-
 
 if __name__ == "__main__":
     main()
