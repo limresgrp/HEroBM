@@ -2,8 +2,8 @@ import torch
 from geqtrain.nn import GraphModuleMixin
 from geqtrain.data import AtomicDataDict
 from geqtrain.nn.mace.irreps_tools import reshape_irreps
+from geqtrain.utils.pytorch_scatter import scatter_sum
 from e3nn.o3 import Irreps
-from torch_runstats.scatter import scatter
 from e3nn.util.jit import compile_mode
 
 from herobm.utils import DataDict
@@ -120,7 +120,7 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
             
             # Re-center predicted atoms' center of mass to the actual bead position
             if self.recenter:
-                predicted_atoms_cm = scatter(
+                predicted_atoms_cm = scatter_sum(
                     reconstructed_atom_pos[b2a_idcs_row + bead_pos_from, b2a_idcs[b2a_idcs_row, b2a_idcs_col] + atom_pos_from] * batch_weights[b2a_idcs_row, b2a_idcs_col][:, None],
                     b2a_idcs_row,
                     dim=0,
