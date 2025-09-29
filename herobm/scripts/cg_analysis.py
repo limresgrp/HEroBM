@@ -27,7 +27,10 @@ def compute_distances(distances, mapping, filename, inputtraj=None):
             # The rest of the code using cg_filename goes here
             for cg_filename, cg_filename_traj in zip(cg_filenames, cg_filename_trajs):
                 try:
-                    u = mda.Universe(cg_filename, cg_filename_traj)
+                    if cg_filename_traj is not None:
+                        u = mda.Universe(cg_filename, cg_filename_traj)
+                    else:
+                        u = mda.Universe(cg_filename)
                     relevant_bead_names = sorted({atom.name for atom in u.atoms})
                     print("Universe loaded successfully.")
                 except FileNotFoundError:
