@@ -16,6 +16,8 @@ import yaml
 from MDAnalysis.topology import guessers
 import matplotlib.pyplot as plt
 import plotly.graph_objects as go
+import tempfile
+from cgmap.mapping.mapper import Mapper
 
 
 LABEL_RE = re.compile(r"^P(\d+)([A-Z]+)$")
@@ -565,6 +567,28 @@ def merge_labels(
     return final_labels
 
 
+def generate_temp_cg(atomistic: Path, mapping_yaml: Path, mapping_folder: Optional[Path]) -> Tuple[tempfile.TemporaryDirectory, Path]:
+    if mapping_folder is None:
+        mapping_folder = mapping_yaml.parent
+    mapping_folder = mapping_folder.resolve()
+    if not mapping_folder.exists():
+        raise FileNotFoundError(f"Mapping folder '{mapping_folder}' not found.")
+    tmpdir = tempfile.TemporaryDirectory()
+    cg_path = Path(tmpdir.name) / "temp_cg.pdb"
+    mapper = Mapper(
+        {
+            "mapping": str(mapping_folder),
+            "input": str(atomistic),
+            "output": str(cg_path),
+            "isatomistic": True,
+            "align": False,
+        }
+    )
+    mapper.map()
+    mapper.save(filename=str(cg_path))
+    return tmpdir, cg_path
+
+
 def main():
     parser = argparse.ArgumentParser(
         description=(
@@ -573,8 +597,14 @@ def main():
     )
     parser.add_argument("-m", "--mapping", required=True, type=Path, help="Mapping yaml file to update.")
     parser.add_argument("-a", "--atomistic", required=True, type=Path, help="Atomistic PDB file.")
-    parser.add_argument("-c", "--cg", required=True, type=Path, help="Coarse-grained PDB file aligned to the atomistic one.")
+    parser.add_argument("-c", "--cg", required=False, type=Path, help="Coarse-grained PDB file aligned to the atomistic one. If omitted, a temporary CG will be generated via Mapper.")
     parser.add_argument("-o", "--output", type=Path, default=None, help="Output yaml (defaults to overwrite input).")
+    parser.add_argument(
+        "--mapping-folder",
+        type=Path,
+        default=None,
+        help="Optional mapping folder to pass to Mapper when generating CG (defaults to parent of the mapping yaml).",
+    )
     parser.add_argument(
         "--distance-threshold",
         type=float,
@@ -611,60 +641,74 @@ def main():
     if resname is None:
         raise ValueError("Mapping file must contain a 'molecule' field.")
 
-    aa_u = mda.Universe(str(args.atomistic))
-    cg_u = mda.Universe(str(args.cg))
+    temp_dirs: List[tempfile.TemporaryDirectory] = []
+    try:
+        cg_path = args.cg
+        if cg_path is None:
+            tmpdir, cg_path = generate_temp_cg(args.atomistic, args.mapping, args.mapping_folder)
+            temp_dirs.append(tmpdir)
+            logging.info("Temporary CG generated at %s", cg_path)
 
-    residue_pairs = build_residue_pairs(aa_u, cg_u, resname)
-    if not residue_pairs:
-        raise RuntimeError(f"No residues named {resname} found in provided structures.")
+        aa_u = mda.Universe(str(args.atomistic))
+        cg_u = mda.Universe(str(cg_path))
 
-    collected: Dict[str, Dict[int, List[str]]] = defaultdict(lambda: defaultdict(list))
-    for aa_res, cg_res in residue_pairs:
-        res_labels = assign_residue_labels(entries, aa_res, cg_res, args.distance_threshold, args.overwrite_existing)
-        for entry_key, bead_dict in res_labels.items():
-            for bead_idx, label in bead_dict.items():
-                collected[entry_key][bead_idx].append(label)
+        residue_pairs = build_residue_pairs(aa_u, cg_u, resname)
+        if not residue_pairs:
+            raise RuntimeError(f"No residues named {resname} found in provided structures.")
 
-    final_labels = merge_labels(entries, collected, args.overwrite_existing)
+        collected: Dict[str, Dict[int, List[str]]] = defaultdict(lambda: defaultdict(list))
+        for aa_res, cg_res in residue_pairs:
+            res_labels = assign_residue_labels(entries, aa_res, cg_res, args.distance_threshold, args.overwrite_existing)
+            for entry_key, bead_dict in res_labels.items():
+                for bead_idx, label in bead_dict.items():
+                    collected[entry_key][bead_idx].append(label)
 
-    for entry in entries:
-        entry.set_labels(final_labels[entry.key])
-        conf["atoms"][entry.key] = entry.render(final_labels[entry.key])
+        final_labels = merge_labels(entries, collected, args.overwrite_existing)
 
-    output_path = args.output if args.output is not None else args.mapping
-    output_path.write_text(yaml.safe_dump(conf, sort_keys=False))
-    logging.info("Updated mapping saved to %s", output_path)
+        for entry in entries:
+            entry.set_labels(final_labels[entry.key])
+            conf["atoms"][entry.key] = entry.render(final_labels[entry.key])
 
-    if args.plot_hierarchy or args.plotly_hierarchy:
-        target_pair = None
-        if args.plot_resid is not None:
-            for aa_res, cg_res in residue_pairs:
-                if aa_res.resid == args.plot_resid:
-                    target_pair = (aa_res, cg_res)
-                    break
+        output_path = args.output if args.output is not None else args.mapping
+        output_path.write_text(yaml.safe_dump(conf, sort_keys=False))
+        logging.info("Updated mapping saved to %s", output_path)
+
+        if args.plot_hierarchy or args.plotly_hierarchy:
+            target_pair = None
+            if args.plot_resid is not None:
+                for aa_res, cg_res in residue_pairs:
+                    if aa_res.resid == args.plot_resid:
+                        target_pair = (aa_res, cg_res)
+                        break
+                if target_pair is None:
+                    logging.warning("Resid %s not found; defaulting to first %s residue.", args.plot_resid, resname)
+            if target_pair is None and residue_pairs:
+                target_pair = residue_pairs[0]
             if target_pair is None:
-                logging.warning("Resid %s not found; defaulting to first %s residue.", args.plot_resid, resname)
-        if target_pair is None and residue_pairs:
-            target_pair = residue_pairs[0]
-        if target_pair is None:
-            logging.error("No residue available to plot.")
-        else:
-            positions, edges, assigned_info = compute_residue_graph(
-                entries,
-                target_pair[0],
-                target_pair[1],
-                args.distance_threshold,
-                args.overwrite_existing,
-            )
-            if not positions:
-                logging.warning("No positions found for plotting; skipping figure.")
+                logging.error("No residue available to plot.")
             else:
-                if args.plot_hierarchy:
-                    plot_hierarchy(positions, edges, assigned_info, target_pair[0], args.plot_hierarchy)
-                    logging.info("Hierarchy plot saved to %s", args.plot_hierarchy)
-                if args.plotly_hierarchy:
-                    plot_hierarchy_plotly(positions, edges, assigned_info, target_pair[0], args.plotly_hierarchy)
-                    logging.info("Interactive hierarchy saved to %s", args.plotly_hierarchy)
+                positions, edges, assigned_info = compute_residue_graph(
+                    entries,
+                    target_pair[0],
+                    target_pair[1],
+                    args.distance_threshold,
+                    args.overwrite_existing,
+                )
+                if not positions:
+                    logging.warning("No positions found for plotting; skipping figure.")
+                else:
+                    if args.plot_hierarchy:
+                        plot_hierarchy(positions, edges, assigned_info, target_pair[0], args.plot_hierarchy)
+                        logging.info("Hierarchy plot saved to %s", args.plot_hierarchy)
+                    if args.plotly_hierarchy:
+                        plot_hierarchy_plotly(positions, edges, assigned_info, target_pair[0], args.plotly_hierarchy)
+                        logging.info("Interactive hierarchy saved to %s", args.plotly_hierarchy)
+    finally:
+        for td in temp_dirs:
+            try:
+                td.cleanup()
+            except Exception as e:
+                logging.warning("Failed to clean temporary directory: %s", e)
 
 
 if __name__ == "__main__":
