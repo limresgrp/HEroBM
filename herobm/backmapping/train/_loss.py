@@ -34,9 +34,9 @@ class InvariantsLoss:
 
         # --- Bond Loss Calculation ---
         # Check if bond indices exist in reference data
-        if "atom_bond_idx" in ref and "atom_bond_idx_slices" in ref:
-            atom_bond_idcs = ref["atom_bond_idx"]
-            atom_bond_idcs_slices = ref["atom_bond_idx_slices"]
+        if "atom_bond_idx" in pred and "atom_bond_idx_slices" in pred:
+            atom_bond_idcs = pred["atom_bond_idx"]
+            atom_bond_idcs_slices = pred["atom_bond_idx_slices"]
 
             bond_pred_list, bond_ref_list = [], []
             # Iterate through batches defined by bead2atom slices
@@ -74,9 +74,9 @@ class InvariantsLoss:
 
         # --- Angle Loss Calculation ---
         # Check if angle indices exist in reference data
-        if "atom_angle_idx" in ref and "atom_angle_idx_slices" in ref:
-            atom_angle_idcs = ref["atom_angle_idx"]
-            atom_angle_idcs_slices = ref["atom_angle_idx_slices"]
+        if "atom_angle_idx" in pred and "atom_angle_idx_slices" in pred:
+            atom_angle_idcs = pred["atom_angle_idx"]
+            atom_angle_idcs_slices = pred["atom_angle_idx_slices"]
 
             angle_pred_list, angle_ref_list = [], []
             # Iterate through batches defined by bead2atom slices
@@ -120,9 +120,9 @@ class InvariantsLoss:
 
         # --- Dihedral Loss Calculation ---
         # Check if dihedral indices exist in reference data
-        if "atom_dihedral_idx" in ref and "atom_dihedral_idx_slices" in ref:
-            atom_dihedral_idcs = ref["atom_dihedral_idx"]
-            atom_dihedral_idcs_slices = ref["atom_dihedral_idx_slices"]
+        if "atom_dihedral_idx" in pred and "atom_dihedral_idx_slices" in pred:
+            atom_dihedral_idcs = pred["atom_dihedral_idx"]
+            atom_dihedral_idcs_slices = pred["atom_dihedral_idx_slices"]
 
             dihedral_pred_list, dihedral_ref_list = [], []
 

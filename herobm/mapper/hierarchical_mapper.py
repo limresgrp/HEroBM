@@ -95,7 +95,7 @@ class HierarchicalMapper(Mapper):
         edge_index = []
         edge_cell_shift = []
         for i, pos in enumerate(self._bead_positions):
-            cell = self._cell[i] if self._cell else None
+            cell = self._cell[i] if self._cell is not None else None
             _edge_index, _edge_cell_shift, _cell = neighbor_list(
             pos=from_numpy(pos),
             r_max=cutoff,
@@ -104,7 +104,7 @@ class HierarchicalMapper(Mapper):
             )
             _edge_index = _edge_index.numpy()
             edge_index.append(_edge_index)
-            if _edge_cell_shift:
+            if _edge_cell_shift is not None:
                 _edge_cell_shift = _edge_cell_shift.numpy()
                 edge_cell_shift.append(_edge_cell_shift)
         
