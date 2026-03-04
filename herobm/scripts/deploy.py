@@ -26,6 +26,8 @@ def main():
     args = parser.parse_args()
     
     logging.basicConfig(level=getattr(logging, args.verbose.upper()))
+    if args.model is None:
+        parser.error("Missing required argument: --model/-m")
 
     model_path = args.model
     config_path = model_path.parent / "config.yaml"
@@ -39,12 +41,20 @@ def main():
     logging.info(f"Embedding bead types file: {args.bead_types_filename}")
     herobm_metadata[BEAD_TYPES_KEY] = str(args.bead_types_filename)
     
-    logging.info(f"Embedding bead stats file: {args.bead_stats}")
-    with open(args.bead_stats, 'r') as f:
-        herobm_metadata[BEAD_STATS_KEY] = f.read()
+    if args.bead_stats is not None:
+        logging.info(f"Embedding bead stats file: {args.bead_stats}")
+        with open(args.bead_stats, 'r') as f:
+            herobm_metadata[BEAD_STATS_KEY] = f.read()
+    else:
+        logging.info("No bead stats file provided; BEAD_STATS metadata will be omitted.")
 
     # Also include any generic key-value pairs from the command line
-    cli_metadata = {k: v for k, v in (item.split('=') for item in args.extra_metadata)}
+    cli_metadata = {}
+    for item in args.extra_metadata:
+        if "=" not in item:
+            raise ValueError(f"Invalid --extra-metadata entry: '{item}'. Expected key=value.")
+        k, v = item.split("=", 1)
+        cli_metadata[k] = v
     herobm_metadata.update(cli_metadata)
 
     # --- Call the Core GEqTrain Function ---

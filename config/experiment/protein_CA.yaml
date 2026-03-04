@@ -1,0 +1,14 @@
+# @package _global_
+defaults:
+  - /base
+  - /data: protein_CA
+  - /model: protein_CA_goten
+  - /train: base
+  - _self_
+
+root: /scratch/angiod/HEroBM/CA/results
+run_name: goten
+experiment_description: ""
+
+wandb: false
+wandb_project: herobm_protein_CA

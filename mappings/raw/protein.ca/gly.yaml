@@ -1,0 +1,10 @@
+molecule: GLY
+
+atoms:
+  N:        BB
+  H,HN:     BB
+  CA:       BB CM
+  HA2,HA1:  BB
+  HA3,HA2:  BB
+  C:        BB
+  O:        BB

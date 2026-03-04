@@ -1,0 +1,22 @@
+molecule: ILE
+
+atoms:
+  N:          BB
+  H,HN:       BB
+  CA:         BB CM
+  HA:         BB
+  CB:         BB
+  HB:         BB
+  CG2:        BB
+  HG21:       BB
+  HG22:       BB
+  HG23:       BB
+  CG1:        BB
+  HG12,HG11:  BB
+  HG13,HG12:  BB
+  CD,CD1:     BB
+  HD11,HD1:   BB
+  HD12,HD2:   BB
+  HD13,HD3:   BB
+  C:          BB
+  O:          BB

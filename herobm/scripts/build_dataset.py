@@ -2,12 +2,55 @@ import argparse
 import torch
 import glob
 import os
+import numpy as np
 from pathlib import Path
 from multiprocessing import Pool, cpu_count
 
 from herobm.mapper import HierarchicalMapper
 
 torch.set_default_dtype(torch.float32)
+
+
+def compute_avg_num_neighbors(npz_files):
+    """
+    Compute average directed neighbors per node from saved NPZ files.
+    Returns None if edge information is unavailable.
+    """
+    per_frame_avgs = []
+
+    for npz_file in npz_files:
+        try:
+            with np.load(npz_file) as data:
+                if "edge_index" not in data or "num_beads" not in data:
+                    continue
+
+                edge_index = data["edge_index"]
+                num_beads = data["num_beads"]
+
+                # Normalize to [n_frames, 2, n_edges]
+                if edge_index.ndim == 2:
+                    edge_index = edge_index[np.newaxis, ...]
+
+                for frame_idx in range(edge_index.shape[0]):
+                    src = edge_index[frame_idx, 0]
+                    valid_edges = int(np.sum(src >= 0))
+
+                    if np.ndim(num_beads) == 0:
+                        n_beads = int(num_beads)
+                    elif len(num_beads) == 1:
+                        n_beads = int(num_beads[0])
+                    else:
+                        n_beads = int(num_beads[frame_idx])
+
+                    if n_beads > 0:
+                        per_frame_avgs.append(valid_edges / n_beads)
+        except Exception:
+            # Keep summary robust even if one NPZ file is malformed.
+            continue
+
+    if not per_frame_avgs:
+        return None
+    return float(np.mean(per_frame_avgs))
 
 # This worker function processes a single file.
 # It will be executed in a separate process.
@@ -120,17 +163,30 @@ def build_dataset(args_dict):
     if tasks:
         print("\nGenerating configuration snippet...")
         summary_mapper = HierarchicalMapper(args_dict=args_dict)
-        config_update_text = f'''Update the training configuration file with the following snippet:
-        heads:
-            head_output:
-                field: node_features
-                out_field: node_output
-                out_irreps: {summary_mapper.bead_reconstructed_size}x1e
-                model: geqtrain.nn.ReadoutModule
-        
-        type_names:\n'''
-        for bt in {x[1]: x[0] for x in sorted(summary_mapper.bead_types_dict.items(), key=lambda x: x[1])}.values():
-            config_update_text += f'- {bt}\n'
+        ordered_type_names = [x[0] for x in sorted(summary_mapper.bead_types_dict.items(), key=lambda x: x[1])]
+        num_types = len(ordered_type_names)
+        avg_num_neighbors = compute_avg_num_neighbors(successful_files)
+
+        config_update_text = f'''
+Update the training configuration file with the following snippet:
+- _target_: geqtrain.nn.ReadoutModule
+    name: head_output
+    field: node_features
+    strict_irreps: false
+    out_field: node_output
+    out_irreps: {summary_mapper.bead_reconstructed_size}x1e
+    readout_latent: geqtrain.nn.ScalarMLPFunction
+    readout_latent_kwargs:
+        mlp_latent_dimensions: [512, 512]
+        mlp_nonlinearity: silu
+
+and update the data configuration file with the following snippet:
+
+num_types: {num_types}
+avg_num_neighbors: {avg_num_neighbors if avg_num_neighbors is not None else "null"}
+type_names:\n'''
+        for bt in ordered_type_names:
+            config_update_text += f'    - {bt}\n'
         print(config_update_text)
 
     print("Success!")

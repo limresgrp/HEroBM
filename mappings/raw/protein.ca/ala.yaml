@@ -1,0 +1,13 @@
+molecule: ALA
+
+atoms:
+  N:    BB
+  H,HN: BB
+  CA:   BB CM
+  HA:   BB
+  CB:   BB
+  HB1:  BB
+  HB2:  BB
+  HB3:  BB
+  C:    BB
+  O:    BB

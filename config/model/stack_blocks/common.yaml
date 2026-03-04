@@ -1,0 +1,138 @@
+# @package _global_
+stack_blocks:
+  node_input_attrs:
+    _target_: geqtrain.nn.EmbeddingInputAttrs
+    name: node_input_attrs
+    attributes: ${node_attributes}
+    eq_attributes: ${eq_node_attributes}
+    out_field: node_input_attrs
+    eq_out_field: node_eq_input_attrs
+  edge_input_attrs:
+    _target_: geqtrain.nn.EmbeddingInputAttrs
+    name: edge_input_attrs
+    attributes: ${edge_attributes}
+    eq_attributes: ${eq_edge_attributes}
+    out_field: edge_input_attrs
+    eq_out_field: edge_eq_input_attrs
+  graph_input_attrs:
+    _target_: geqtrain.nn.EmbeddingInputAttrs
+    name: graph_input_attrs
+    attributes: ${graph_attributes}
+    eq_attributes: ${eq_graph_attributes}
+    out_field: graph_input_attrs
+    eq_out_field: graph_eq_input_attrs
+  edge_radial_attrs:
+    _target_: geqtrain.nn.BasisEdgeRadialAttrs
+    name: edge_radial_attrs
+    basis_kwargs:
+      r_max: ${r_max}
+      num_basis: ${num_basis}
+    cutoff_kwargs:
+      r_max: ${r_max}
+  edge_angular_attrs:
+    _target_: geqtrain.nn.SphericalHarmonicEdgeAngularAttrs
+    name: edge_angular_attrs
+    irreps_edge_sh: ${irreps_edge_sh}
+    l_max: ${l_max}
+    parity: ${parity}
+  attrs:
+    _target_: geqtrain.nn.EmbeddingAttrs
+    name: attrs
+  interaction:
+    _target_: geqtrain.nn.InteractionModule
+    name: interaction
+    num_layers: ${num_layers}
+    latent_dim: ${latent_dim}
+    eq_latent_multiplicity: ${eq_latent_multiplicity}
+    use_attention: ${use_attention}
+    attention_head_dim: ${attention_head_dim}
+    use_mace_product: ${use_mace_product}
+    product_correlation: ${product_correlation}
+    output_ls: ${output_ls}
+    latent_module: ${latent_module}
+    latent_module_kwargs: ${latent_module_kwargs}
+  edge_pooling:
+    _target_: geqtrain.nn.EdgewiseReduce
+    name: edge_pooling
+    field: edge_features
+    out_field: node_features
+    use_attention: ${pooling_use_attention}
+    attention_head_dim: ${pooling_attention_head_dim}
+  node_pooling:  
+    _target_: geqtrain.nn.NodewiseReduce
+    name: node_pooling
+    field: node_features
+    out_field: graph_features
+  readout:
+    _target_: geqtrain.nn.ReadoutModule
+    name: readout
+    field: ${readout_field}
+    out_field: ${readout_out_field}
+    out_irreps: ${readout_out_irreps}
+    readout_latent: ${readout_latent}
+    readout_latent_kwargs: ${readout_latent_kwargs}
+  enable_gradients:
+    _target_: geqtrain.nn.EnableGradients
+    name: enable_gradients
+    gradient_of: ${gradient_of}
+    gradient_wrt: ${gradient_wrt}
+  compute_gradients:
+    _target_: geqtrain.nn.ComputeGradient
+    name: compute_gradients
+    gradient_of: ${gradient_of}
+    gradient_wrt: ${gradient_wrt}
+    out_field: ${gradient_out_field}
+    sign: ${gradient_sign}
+    scales: ${gradient_scales}
+
+
+r_max: 5.0
+num_basis: 8
+l_max: 2
+parity: so3
+irreps_edge_sh: null # 1x0e+1x1e+1x2e
+
+# interaction
+num_layers: 2
+latent_dim: 64
+eq_latent_multiplicity: 8
+mlp_latent_dimensions: [256, 256]
+mlp_nonlinearity: silu
+use_attention: false
+attention_head_dim: 32
+use_mace_product: false
+product_correlation: 2
+output_ls: [0]
+latent_module: ScalarMLPFunction
+latent_module_kwargs:
+  mlp_latent_dimensions: ${mlp_latent_dimensions}
+  mlp_nonlinearity: ${mlp_nonlinearity}
+
+# edge_pooling
+pooling_use_attention: false
+pooling_attention_head_dim: 32
+
+# readout
+readout_field: node_features
+readout_out_field: node_out
+readout_out_irreps: 1x0e
+readout_latent: ScalarMLPFunction
+readout_latent_kwargs:
+  mlp_latent_dimensions: ${mlp_latent_dimensions}
+  mlp_nonlinearity: ${mlp_nonlinearity}
+
+# Optional (not always used by a given model stack), but referenced by stack_blocks above.
+# Provide empty defaults so OmegaConf `resolve=True` doesn't fail when these aren't set by `/model: ...`.
+node_attributes: {}
+eq_node_attributes: {}
+edge_attributes: {}
+eq_edge_attributes: {}
+graph_attributes: {}
+eq_graph_attributes: {}
+
+# Gradients
+gradient_of: energy
+gradient_wrt: pos
+gradient_out_field: forces
+gradient_sign: -1
+gradient_scales: null

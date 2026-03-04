@@ -1,0 +1,67 @@
+# @package _global_
+defaults:
+  - /model/stack_blocks: common
+  - _self_
+
+model:
+  stack:
+    - ${stack_blocks.node_input_attrs}
+    - ${stack_blocks.edge_radial_attrs}
+    - ${stack_blocks.edge_angular_attrs}
+    - _target_: geqtrain.nn.EmbeddingAttrs
+      name: attrs
+      node_emb: geqtrain.nn.goten.GotenNodeEmbedding
+      node_emb_kwargs:
+        latent_dim: 256
+      node_eq_emb: null
+      edge_emb: geqtrain.nn.goten.GotenEdgeEmbedding
+      edge_eq_emb: null
+    - _target_: geqtrain.nn.GotenInteractionModule
+      name: goten_interaction
+      num_layers: 3
+      r_max: ${r_max}
+      num_heads: 8
+      attn_dropout: 0.0
+      layer_norm: true
+      steerable_norm: false
+      edge_updates: true
+      scale_edge: true
+      sep_htr: true
+      sep_dir: false
+      sep_tensor: false
+      output_ls: [0,1]
+      out_field_node: node_features
+      out_field_edge: edge_features
+    - _target_: geqtrain.nn.ReadoutModule
+      name: head_output
+      field: node_features
+      strict_irreps: false
+      out_field: node_output
+      out_irreps: 24x1e
+      readout_latent: geqtrain.nn.ScalarMLPFunction
+      readout_latent_kwargs:
+        mlp_latent_dimensions: [512, 512]
+        mlp_nonlinearity: silu
+    - _target_: herobm.backmapping.nn.HierarchicalReconstructionModule
+      num_types: ${num_types}
+
+r_max: 5.0
+num_basis: 32
+l_max: 2
+parity: so3
+model_requires_grads: true
+
+node_attributes:
+  node_types:
+    embedding_mode: one_hot
+    num_types: ${num_types}
+
+edge_attributes:
+  bead_is_prev:
+    embedding_dimensionality: 8
+    num_types: 2
+  bead_is_next:
+    embedding_dimensionality: 8
+    num_types: 2
+
+eq_node_attributes: {}
