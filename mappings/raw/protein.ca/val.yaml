@@ -1,0 +1,19 @@
+molecule: VAL
+
+atoms:
+  N:    BB
+  H,HN: BB
+  CA:   BB CM
+  HA:   BB
+  CB:   BB
+  HB:   BB
+  CG1:  BB
+  HG11: BB
+  HG12: BB
+  HG13: BB
+  CG2:  BB
+  HG21: BB
+  HG22: BB
+  HG23: BB
+  C:    BB
+  O:    BB

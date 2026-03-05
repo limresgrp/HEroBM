@@ -58,6 +58,15 @@ class HierarchicalReconstructionModule(GraphModuleMixin, torch.nn.Module):
         assert bead_pos_slices is not None, "'pos_slices' must be in data"
         idcs_mask              = data.get("bead2atom_reconstructed_idcs")
         assert idcs_mask is not None, "'bead2atom_reconstructed_idcs' must be in data"
+
+        # Fail early with a clear message instead of a cryptic CUDA device-side assert.
+        # This usually happens when inference mapping reconstructs more atoms per bead
+        # (e.g. hydrogens included) than the model head was trained to output.
+        if idcs_mask.size(1) > bead2atom_relative_vectors.size(1):
+            raise RuntimeError(
+                "Mismatch between mapping reconstruction width and model output width. "
+                "Use matching mapping/model settings (e.g. --ignore-hydrogens consistently)."
+            )
         
         # JIT-friendly fix for default value creation:
         # Avoid .item() as it breaks the computation graph for TorchScript.

@@ -1,0 +1,20 @@
+molecule: MET
+
+atoms:
+  N:        BB
+  H,HN:     BB
+  CA:       BB CM
+  HA:       BB
+  CB:       BB
+  HB2,HB1:  BB
+  HB3,HB2:  BB
+  CG:       BB
+  HG2,HG1:  BB
+  HG3,HG2:  BB
+  SD:       BB
+  CE:       BB
+  HE1:      BB
+  HE2:      BB
+  HE3:      BB
+  C:        BB
+  O:        BB

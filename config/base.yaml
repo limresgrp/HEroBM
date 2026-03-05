@@ -1,0 +1,11 @@
+# @package _global_
+seed: 42
+dataset_seed: 42
+
+verbose: info
+log_batch_freq: 100
+
+wandb: false
+wandb_project: herobm
+
+append: true

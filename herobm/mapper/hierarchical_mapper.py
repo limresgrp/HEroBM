@@ -183,6 +183,10 @@ class HierarchicalMapper(Mapper):
         return dataset
 
     def __init__(self, args_dict) -> None:
+        # Keep this class-level switch deterministic per mapper instance.
+        HEroBMBeadMappingAtomSettings.ignore_hydrogen_hierarchy = bool(
+            args_dict.get("ignore_hydrogens", False)
+        )
         super().__init__(args_dict=args_dict)
         self.noinvariants = args_dict.get('noinvariants', False)
     

@@ -1,0 +1,15 @@
+# @package _global_
+defaults:
+  - /base
+  - /data: protein_CA
+  - /model: protein_CA_goten
+  - /train: base
+  - _self_
+
+# Replace with your own output directory before training.
+root: /path/to/your/results
+run_name: protein_CA_goten
+experiment_description: ""
+
+wandb: false
+wandb_project: herobm_protein_CA

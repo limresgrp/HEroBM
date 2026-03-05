@@ -1,10 +1,87 @@
 import argparse
 import logging
+import re
+import yaml
 from typing import Dict, Union
 from pathlib import Path
 from herobm.backmapping.hierarchical_backmapping import HierarchicalBackmapping, load_model
-from herobm.utils.DataDict import MAPPING_KEY, BEAD_TYPES_KEY, BEAD_STATS_KEY
+from herobm.utils.DataDict import MAPPING_KEY, BEAD_TYPES_KEY, BEAD_STATS_KEY, IGNORE_HYDROGENS_KEY
 from geqtrain.utils._global_options import register_all_fields
+
+
+def _parse_bool_str(value: str):
+    if value is None:
+        return None
+    norm = str(value).strip().lower()
+    if norm in {"1", "true", "yes", "y", "on"}:
+        return True
+    if norm in {"0", "false", "no", "n", "off"}:
+        return False
+    return None
+
+
+def _extract_model_output_width(model_config) -> int:
+    model_conf = model_config.get("model", {})
+    stack = model_conf.get("stack", [])
+    if not isinstance(stack, list):
+        return None
+    for layer in stack:
+        if not isinstance(layer, dict):
+            continue
+        if layer.get("out_field") != "node_output":
+            continue
+        out_irreps = layer.get("out_irreps")
+        if out_irreps is None:
+            continue
+        m = re.match(r"^\s*(\d+)x", str(out_irreps))
+        if m:
+            return int(m.group(1))
+    return None
+
+
+def _infer_ignore_hydrogens_from_mapping(mapping: str, model_output_width: int):
+    if mapping is None or model_output_width is None:
+        return None
+    mapping_path = Path(mapping)
+    if not mapping_path.exists() or not mapping_path.is_dir():
+        return None
+
+    hierarchy_pattern = re.compile(r"^P\d+[A-Z]+$")
+
+    def is_hydrogen_entry(atom_key: str) -> bool:
+        names = [n.strip().upper() for n in str(atom_key).split(",")]
+        return len(names) > 0 and all(n.startswith("H") for n in names)
+
+    max_all = 0
+    max_noh = 0
+    for yaml_file in mapping_path.glob("*.yaml"):
+        if yaml_file.name.startswith("bead_types"):
+            continue
+        try:
+            conf = yaml.safe_load(yaml_file.read_text())
+        except Exception:
+            continue
+        atoms = conf.get("atoms", {}) if isinstance(conf, dict) else {}
+        if not isinstance(atoms, dict):
+            continue
+        cnt_all = 0
+        cnt_noh = 0
+        for atom_key, atom_spec in atoms.items():
+            tokens = str(atom_spec).split()
+            has_hier = any(hierarchy_pattern.match(t) for t in tokens)
+            if has_hier:
+                cnt_all += 1
+                if not is_hydrogen_entry(atom_key):
+                    cnt_noh += 1
+        max_all = max(max_all, cnt_all)
+        max_noh = max(max_noh, cnt_noh)
+
+    # If model width matches only one mode, infer deterministically.
+    if model_output_width == max_noh and model_output_width != max_all:
+        return True
+    if model_output_width == max_all and model_output_width != max_noh:
+        return False
+    return None
 
 def run_backmapping(
     model, 
@@ -79,6 +156,19 @@ def main():
     model_group.add_argument("-mo", "--model", type=Path, required=True, help="Path to the trained/deployed model file (.pth).")
     model_group.add_argument("-m", "--mapping", type=str, help="Coarse-grain mapping to use. Overrides model metadata if provided.")
     model_group.add_argument("-b", "--bead-types-filename", type=Path, help="YAML file defining bead types. Overrides model metadata if provided.")
+    model_group.add_argument(
+        "--ignore-hydrogens",
+        action="store_true",
+        dest="ignore_hydrogens",
+        default=None,
+        help="Ignore hierarchy labels for atoms whose names start with 'H'. Overrides model metadata.",
+    )
+    model_group.add_argument(
+        "--predict-hydrogens",
+        action="store_false",
+        dest="ignore_hydrogens",
+        help="Do not ignore hydrogen hierarchy labels. Overrides model metadata.",
+    )
     model_group.add_argument("-a", "--atomistic", action="store_true", default=False, dest="isatomistic", help="Flag if the input is atomistic (not coarse-grained). Use to test model accuracy on MAP->BACKMAP.")
 
     processing_group = parser.add_argument_group("Processing and Selection Arguments")
@@ -102,15 +192,31 @@ def main():
     # --- Use Metadata as Fallback for Arguments ---
     # Command-line arguments will take precedence over metadata
     if args.mapping is None:
-        args.mapping = metadata.pop(MAPPING_KEY)
+        args.mapping = metadata.pop(MAPPING_KEY, None)
         if args.mapping:
             print(f"Using mapping from model metadata: {args.mapping}")
 
     if args.bead_types_filename is None:
-        bead_types_path = metadata.pop(BEAD_TYPES_KEY)
+        bead_types_path = metadata.pop(BEAD_TYPES_KEY, None)
         if bead_types_path:
             args.bead_types_filename = Path(bead_types_path)
             print(f"Using bead types file from model metadata: {args.bead_types_filename}")
+
+    if args.ignore_hydrogens is None:
+        ignore_h_from_meta = _parse_bool_str(metadata.pop(IGNORE_HYDROGENS_KEY, None))
+        if ignore_h_from_meta is not None:
+            args.ignore_hydrogens = ignore_h_from_meta
+            print(f"Using ignore_hydrogens from model metadata: {args.ignore_hydrogens}")
+    if args.ignore_hydrogens is None:
+        inferred_ignore_h = _infer_ignore_hydrogens_from_mapping(
+            mapping=args.mapping,
+            model_output_width=_extract_model_output_width(model_config),
+        )
+        if inferred_ignore_h is not None:
+            args.ignore_hydrogens = inferred_ignore_h
+            print(f"Auto-inferred ignore_hydrogens from model width + mapping: {args.ignore_hydrogens}")
+    if args.ignore_hydrogens is None:
+        args.ignore_hydrogens = False
 
     # Determine which bead_stats to use (CLI > metadata)
     bead_stats_arg = None

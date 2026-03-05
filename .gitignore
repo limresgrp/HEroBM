@@ -3,16 +3,17 @@
 /results
 **/backmapped
 /wandb
-/paper
-**/local
-/tutorial
-/test
 /deployed
-/figures
-*.png
-*.PNG
-*.yaml
-*.zip
+/local_utils
+/cgdist
+/old_config
+/deps
+/webapp
+/old_data
+*.npz
+data/NECA
+data/POPC
+mappings/complete
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

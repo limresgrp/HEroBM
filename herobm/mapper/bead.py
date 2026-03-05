@@ -10,6 +10,10 @@ from cgmap.utils import DataDict
 
 
 class HEroBMBeadMappingAtomSettings(BeadMappingAtomSettings):
+    # Runtime toggle set by HierarchicalMapper from args_dict.
+    # When enabled, atoms whose names start with 'H' are treated as if no
+    # hierarchical reconstruction label was provided.
+    ignore_hydrogen_hierarchy: bool = False
 
     def __init__(
         self,
@@ -52,6 +56,16 @@ class HEroBMBeadMappingAtomSettings(BeadMappingAtomSettings):
             except ValueError as e:
                 logging.error(f"Error while parsing mapping for bead {self.bead_name}. Incorrect mapping setting: {setting}")
                 raise e
+
+        # Optional mode for dataset building:
+        # ignore hierarchy labels for hydrogen atoms only.
+        if self.ignore_hydrogen_hierarchy:
+            atom_names = [name.upper() for name in self.atom_names]
+            if atom_names and all(name.startswith("H") for name in atom_names):
+                self.set_has_to_be_reconstructed(False)
+                self.set_hierarchy_level(-1)
+                self.set_hierarchy_name("")
+                self.set_hierarchy_previous_name("")
     
     @property
     def hierarchy_level(self):
