@@ -8,7 +8,7 @@ loss_coeffs:
     - MSELoss
     - ignore_nan: true
   - atom_pos:
-    - 0.1
+    - 0.5
     - herobm.backmapping.train.InvariantsLoss
     - ignore_nan: true
 

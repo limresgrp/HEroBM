@@ -6,6 +6,7 @@ defaults:
 model:
   stack:
     - ${stack_blocks.node_input_attrs}
+    - ${stack_blocks.edge_input_attrs}
     - ${stack_blocks.edge_radial_attrs}
     - ${stack_blocks.edge_angular_attrs}
     - _target_: geqtrain.nn.EmbeddingAttrs
@@ -37,16 +38,17 @@ model:
       field: node_features
       strict_irreps: false
       out_field: node_output
-      out_irreps: 24x1e
+      out_irreps: 14x1e
       readout_latent: geqtrain.nn.ScalarMLPFunction
       readout_latent_kwargs:
         mlp_latent_dimensions: [512, 512]
         mlp_nonlinearity: silu
     - _target_: herobm.backmapping.nn.HierarchicalReconstructionModule
       num_types: ${num_types}
+      recenter: false
 
-r_max: 5.0
-num_basis: 32
+r_max: 12.0
+num_basis: 64
 l_max: 2
 parity: so3
 model_requires_grads: true

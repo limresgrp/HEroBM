@@ -6,8 +6,9 @@ defaults:
   - /train: base
   - _self_
 
-root: /scratch/angiod/HEroBM/CA/results
-run_name: goten
+# Replace with your own output directory before training.
+root: /path/to/your/results
+run_name: protein_CA_goten
 experiment_description: ""
 
 wandb: false

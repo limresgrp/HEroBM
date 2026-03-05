@@ -166,6 +166,14 @@ def build_dataset(args_dict):
         ordered_type_names = [x[0] for x in sorted(summary_mapper.bead_types_dict.items(), key=lambda x: x[1])]
         num_types = len(ordered_type_names)
         avg_num_neighbors = compute_avg_num_neighbors(successful_files)
+        r_max = args_dict.get("r_max", None)
+        r_max_block = ""
+        if r_max is not None:
+            r_max_block = f'''
+and update the model/training configuration file with:
+
+r_max: {r_max}
+'''
 
         config_update_text = f'''
 Update the training configuration file with the following snippet:
@@ -179,6 +187,7 @@ Update the training configuration file with the following snippet:
     readout_latent_kwargs:
         mlp_latent_dimensions: [512, 512]
         mlp_nonlinearity: silu
+{r_max_block}
 
 and update the data configuration file with the following snippet:
 
@@ -273,6 +282,12 @@ def parse_command_line(args=None):
              "If you set this option, information on preceding and following beads will be included (suggested choice).",
         type=float,
     )
+    parser.add_argument(
+        "--r-max",
+        help="If provided, include `r_max: ...` in the generated training/model configuration snippet.",
+        type=float,
+        default=None,
+    )
     parser.add_argument('--isatomistic', action='store_true', default=True, help='Specify that the input is atomistic (default)')
     parser.add_argument('-cg', action='store_false', dest='isatomistic', help='Specify that the input is coarse-grained')
     parser.add_argument(
@@ -281,6 +296,15 @@ def parse_command_line(args=None):
         help="Number of parallel processes to run for building dataset",
         type=int,
         default=None,
+    )
+    parser.add_argument(
+        "--ignore-hydrogens",
+        action="store_true",
+        default=False,
+        help=(
+            "Ignore hierarchical reconstruction labels for atoms whose names start with 'H'. "
+            "Useful to avoid reconstructing hydrogens even if mapping files contain P... labels for them."
+        ),
     )
 
     return parser.parse_args(args=args)

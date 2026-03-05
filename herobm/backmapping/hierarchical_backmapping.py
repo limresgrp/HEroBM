@@ -163,9 +163,37 @@ class HierarchicalBackmapping:
                 )
 
                 _backmapped_u = [None] # Use a list to make it mutable
+                checked_edge_attrs = False
 
                 pbar = tqdm(dataloader, desc=f"Backmapping {basename(output_filename)}")
                 for batch_index, data in enumerate(pbar):
+                    if not checked_edge_attrs:
+                        if AtomicDataDict.EDGE_INDEX_KEY not in data:
+                            raise RuntimeError(
+                                f"Missing required '{AtomicDataDict.EDGE_INDEX_KEY}' in inference batch."
+                            )
+                        edge_index = data[AtomicDataDict.EDGE_INDEX_KEY]
+                        num_edges = edge_index.shape[1]
+                        for edge_flag_key in (DataDict.BEAD_IS_PREV, DataDict.BEAD_IS_NEXT):
+                            if edge_flag_key not in data:
+                                raise RuntimeError(
+                                    f"Missing required edge attribute '{edge_flag_key}' in inference batch."
+                                )
+                            edge_flag = data[edge_flag_key]
+                            if edge_flag.shape[0] != num_edges:
+                                raise RuntimeError(
+                                    f"Edge attribute '{edge_flag_key}' has shape {tuple(edge_flag.shape)} "
+                                    f"but edge_index has {num_edges} edges."
+                                )
+                        logging.info(
+                            "Inference batch edge attrs OK: edge_index=%s, %s=%s, %s=%s",
+                            tuple(edge_index.shape),
+                            DataDict.BEAD_IS_PREV,
+                            tuple(data[DataDict.BEAD_IS_PREV].shape),
+                            DataDict.BEAD_IS_NEXT,
+                            tuple(data[DataDict.BEAD_IS_NEXT].shape),
+                        )
+                        checked_edge_attrs = True
                     
                     # Dictionary to collect partial results from each chunk
                     results = {
@@ -189,9 +217,9 @@ class HierarchicalBackmapping:
                         
                             # Collect the partial results from this chunk
                             if AtomicDataDict.NODE_FEATURES_KEY in out:
-                                results[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED].append(out[AtomicDataDict.NODE_FEATURES_KEY].cpu().numpy())
+                                results[DataDict.BEAD2ATOM_RELATIVE_VECTORS_PRED].append(out[AtomicDataDict.NODE_FEATURES_KEY].detach().cpu().numpy())
                             if DataDict.ATOM_POSITION in out:
-                                results[DataDict.ATOM_POSITION_PRED].append(np.expand_dims(out[DataDict.ATOM_POSITION].cpu().numpy(), axis=0))
+                                results[DataDict.ATOM_POSITION_PRED].append(np.expand_dims(out[DataDict.ATOM_POSITION].detach().cpu().numpy(), axis=0))
 
                         # Update the state for the next chunk
                         already_computed_nodes = evaluate_end_chunking_condition(
@@ -386,4 +414,3 @@ def build_universe(
 def get_edge_index(positions: torch.Tensor, r_max: float):
     dist_matrix = torch.norm(positions[:, None, ...] - positions[None, ...], dim=-1).fill_diagonal_(torch.inf)
     return torch.argwhere(dist_matrix <= r_max).T.long()
-
