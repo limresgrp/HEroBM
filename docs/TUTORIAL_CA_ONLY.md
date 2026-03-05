@@ -18,7 +18,9 @@ source .venv-herobm/bin/activate
 
 ## 2) Complete Raw CA Mapping Files
 
-Generate hierarchy-completed mappings from `mappings/raw/protein.ca`:
+Generate hierarchy-completed mappings from `mappings/raw/protein.ca`.
+This is necessary to tell HEroBM which is the hierarchy for reconstructing atoms from beads.
+The definition of hierarchies can be performed manually, but we offer an automated script which usually finds a good hierarchy definition:
 
 ```bash
 ./interactive_console.sh complete-mapping \
