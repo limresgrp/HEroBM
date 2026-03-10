@@ -462,7 +462,7 @@ run_option1() {
     exit 1
   fi
 
-  echo "Option1 completed successfully. Output folder: $mapping_output_dir"
+  echo "Complete-mapping completed successfully. Output folder: $mapping_output_dir"
 }
 
 run_option2() {
@@ -648,7 +648,7 @@ run_option2() {
   echo "Running: ${cmd[*]}"
   "${cmd[@]}"
 
-  echo "Option2 completed successfully. NPZ output folder: $output_dir"
+  echo "Build-dataset completed successfully. NPZ output folder: $output_dir"
 }
 
 run_option3() {
@@ -723,7 +723,7 @@ run_option3() {
 
   echo "Running: ${cmd[*]}"
   "${cmd[@]}"
-  echo "Option3 completed successfully."
+  echo "Training completed successfully."
 }
 
 run_option4() {
@@ -796,7 +796,7 @@ run_option4() {
 
   echo "Running: ${cmd[*]}"
   "${cmd[@]}"
-  echo "Option4 completed successfully. Stats CSV: $output_csv"
+  echo "Cg-stats completed successfully. Stats CSV: $output_csv"
 }
 
 run_option5() {
@@ -897,7 +897,7 @@ run_option5() {
 
   echo "Running: ${cmd[*]}"
   "${cmd[@]}"
-  echo "Option5 completed successfully. Deployed model: $output_model"
+  echo "Deploy completed successfully. Deployed model: $output_model"
 }
 
 run_option6() {
@@ -1057,7 +1057,7 @@ run_option6() {
 
   echo "Running: ${cmd[*]}"
   "${cmd[@]}"
-  echo "Option6 completed successfully. Output folder: $output_dir"
+  echo "Backmapping completed successfully. Output folder: $output_dir"
 }
 
 run_option1_interactive() {

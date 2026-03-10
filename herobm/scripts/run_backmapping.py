@@ -197,7 +197,7 @@ def main():
             print(f"Using mapping from model metadata: {args.mapping}")
 
     if args.bead_types_filename is None:
-        bead_types_path = metadata.pop(BEAD_TYPES_KEY, None)
+        bead_types_path = metadata.pop(BEAD_TYPES_KEY, "bead_types.yaml")
         if bead_types_path:
             args.bead_types_filename = Path(bead_types_path)
             print(f"Using bead types file from model metadata: {args.bead_types_filename}")

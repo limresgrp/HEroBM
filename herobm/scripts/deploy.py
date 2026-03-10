@@ -8,7 +8,7 @@ from pathlib import Path
 
 # IMPORTANT: Import the reusable components from GEqTrain
 from geqtrain.utils.deploy import build_deployment, get_base_deploy_parser
-from geqtrain.train.components.checkpointing import CheckpointHandler
+from geqtrain.train.components.checkpointing import Config
 
 # Import HEroBM specific keys
 from herobm.utils.DataDict import MAPPING_KEY, BEAD_TYPES_KEY, BEAD_STATS_KEY, IGNORE_HYDROGENS_KEY
@@ -120,7 +120,8 @@ def main():
         parser.error("Missing required argument: --model/-m")
 
     model_path = args.model
-    config = CheckpointHandler.load_config_from_training_session(model_path.parent)
+    config_filename = str(model_path.parent / "config.yaml")
+    config = Config.from_file(config_filename)
 
     # --- HEroBM Specific Logic ---
     herobm_metadata = {}
