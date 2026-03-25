@@ -57,9 +57,10 @@ Optional arguments:
   --python PYTHON_EXE        Python executable to use (default: python)
 
 Notes:
-- For each mapping file, the script tries to find a matching atomistic structure by file stem
-  and by 'molecule' field (e.g. val.yaml -> val.pdb / VAL.pdb / val.gro / VAL.gro).
-- If exactly one structure exists in --atomistic-dir, it is used as fallback for all residues.
+- The script scans every `.pdb`/`.gro` file in `--atomistic-dir`, reads the residue names present
+  in each structure, and completes any still-incomplete mapping YAML whose `molecule` matches.
+- Mapping YAMLs that are already complete are copied/skipped unless `--overwrite-existing` is used.
+- File names in `--atomistic-dir` do not matter; only the structure format and contained residue names matter.
 USAGE
 }
 
@@ -296,57 +297,71 @@ extract_molecule_name() {
   awk -F':' '/^molecule:/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}' "$mapping_file"
 }
 
-find_structure_for_mapping() {
-  local atomistic_dir="$1"
+mapping_has_complete_labels() {
+  local py_bin="$1"
   local mapping_file="$2"
-  local stem molecule stem_upper stem_lower mol_upper mol_lower single_candidate
 
-  stem="$(basename "$mapping_file" .yaml)"
-  stem_upper="${stem^^}"
-  stem_lower="${stem,,}"
-  molecule="$(extract_molecule_name "$mapping_file")"
-  mol_upper="${molecule^^}"
-  mol_lower="${molecule,,}"
+  "$py_bin" - "$mapping_file" <<'PY'
+import re
+import sys
+from pathlib import Path
 
-  local candidates=(
-    "$atomistic_dir/${stem}.pdb"
-    "$atomistic_dir/${stem}.gro"
-    "$atomistic_dir/${stem_upper}.pdb"
-    "$atomistic_dir/${stem_upper}.gro"
-    "$atomistic_dir/${stem_lower}.pdb"
-    "$atomistic_dir/${stem_lower}.gro"
-  )
+import yaml
 
-  if [[ -n "$molecule" ]]; then
-    candidates+=(
-      "$atomistic_dir/${molecule}.pdb"
-      "$atomistic_dir/${molecule}.gro"
-      "$atomistic_dir/${mol_upper}.pdb"
-      "$atomistic_dir/${mol_upper}.gro"
-      "$atomistic_dir/${mol_lower}.pdb"
-      "$atomistic_dir/${mol_lower}.gro"
-    )
-  fi
+label_re = re.compile(r"^P\d+[A-Z]+$")
+mapping_file = Path(sys.argv[1])
+conf = yaml.safe_load(mapping_file.read_text()) or {}
+atoms = conf.get("atoms") or {}
 
-  local path
-  for path in "${candidates[@]}"; do
-    if [[ -f "$path" ]]; then
-      echo "$path"
-      return 0
-    fi
-  done
+if not atoms:
+    print("0")
+    raise SystemExit(0)
 
-  single_candidate="$(find "$atomistic_dir" -maxdepth 1 -type f \( -iname '*.pdb' -o -iname '*.gro' \) | head -n 1 || true)"
-  if [[ -n "$single_candidate" ]]; then
-    local n_struct
-    n_struct="$(find "$atomistic_dir" -maxdepth 1 -type f \( -iname '*.pdb' -o -iname '*.gro' \) | wc -l)"
-    if [[ "$n_struct" -eq 1 ]]; then
-      echo "$single_candidate"
-      return 0
-    fi
-  fi
+for raw_value in atoms.values():
+    tokens = str(raw_value).split()
+    if not tokens:
+        print("0")
+        raise SystemExit(0)
+    bead_count = len(tokens[0].split(","))
+    label_columns = []
+    for token in tokens[1:]:
+        values = [value.strip() for value in token.split(",")]
+        if len(values) < bead_count:
+            values += [""] * (bead_count - len(values))
+        elif len(values) > bead_count:
+            values = values[:bead_count]
+        if any(label_re.match(value) for value in values):
+            label_columns.append(values)
+    if not label_columns:
+        print("0")
+        raise SystemExit(0)
+    merged = [""] * bead_count
+    for values in label_columns:
+        for i, value in enumerate(values):
+            if label_re.match(value):
+                merged[i] = value
+    if any(not label_re.match(value) for value in merged):
+        print("0")
+        raise SystemExit(0)
 
-  return 1
+print("1")
+PY
+}
+
+list_structure_resnames() {
+  local py_bin="$1"
+  local structure_file="$2"
+
+  "$py_bin" - "$structure_file" <<'PY'
+import sys
+
+import MDAnalysis as mda
+
+u = mda.Universe(sys.argv[1])
+resnames = sorted({str(res.resname).strip().upper() for res in u.residues if str(res.resname).strip()})
+for resname in resnames:
+    print(resname)
+PY
 }
 
 run_option1() {
@@ -417,44 +432,135 @@ run_option1() {
     exit 1
   fi
 
-  local i=0
-  local failures=0
-  local mapping_file atomistic_file out_file
+  mapfile -t atomistic_files < <(find "$atomistic_dir" -maxdepth 1 -type f \( -iname '*.pdb' -o -iname '*.gro' \) | sort)
+  if [[ ${#atomistic_files[@]} -eq 0 ]]; then
+    echo "Error: no atomistic structure files (*.pdb, *.gro) found in $atomistic_dir" >&2
+    exit 1
+  fi
+
+  declare -A pending_mapping_by_resname=()
+  declare -A attempted_mapping_by_resname=()
+  local mapping_file out_file molecule source_file completed_flag
+  local already_complete=0
 
   for mapping_file in "${mapping_files[@]}"; do
-    ((i+=1))
+    molecule="$(extract_molecule_name "$mapping_file")"
+    if [[ -z "$molecule" ]]; then
+      echo "ERROR: missing molecule field in $(basename "$mapping_file")" >&2
+      exit 1
+    fi
+    molecule="${molecule^^}"
     out_file="$mapping_output_dir/$(basename "$mapping_file")"
+    source_file="$mapping_file"
 
-    if ! atomistic_file="$(find_structure_for_mapping "$atomistic_dir" "$mapping_file")"; then
-      echo "[$i/${#mapping_files[@]}] ERROR: no matching atomistic structure for $(basename "$mapping_file")" >&2
-      ((failures+=1))
+    if [[ "$overwrite_existing" -eq 0 && -f "$out_file" ]]; then
+      completed_flag="$(mapping_has_complete_labels "$py_bin" "$out_file")"
+      if [[ "$completed_flag" == "1" ]]; then
+        ((already_complete+=1))
+        continue
+      fi
+    fi
+
+    completed_flag="$(mapping_has_complete_labels "$py_bin" "$mapping_file")"
+    if [[ "$completed_flag" == "1" ]]; then
+      if [[ ! -f "$out_file" ]] || ! cmp -s "$mapping_file" "$out_file"; then
+        cp "$mapping_file" "$out_file"
+      fi
+      ((already_complete+=1))
       continue
     fi
 
-    echo "[$i/${#mapping_files[@]}] $(basename "$mapping_file") <- $(basename "$atomistic_file")"
-
-    cmd=(
-      "$py_bin" -m cgmap.scripts.assign_hierarchical_labels
-      -m "$mapping_file"
-      -a "$atomistic_file"
-      -o "$out_file"
-      --mapping-folder "$mapping_input_dir"
-      --distance-threshold "$distance_threshold"
-    )
-    if [[ "$overwrite_existing" -eq 1 ]]; then
-      cmd+=(--overwrite-existing)
+    if [[ -n "${pending_mapping_by_resname[$molecule]:-}" ]]; then
+      echo "ERROR: duplicate molecule entry '${molecule}' in $(basename "${pending_mapping_by_resname[$molecule]}") and $(basename "$mapping_file")" >&2
+      exit 1
     fi
 
-    if ! "${cmd[@]}"; then
-      echo "[$i/${#mapping_files[@]}] ERROR: failed to complete $(basename "$mapping_file")" >&2
-      ((failures+=1))
-      continue
-    fi
+    pending_mapping_by_resname["$molecule"]="$mapping_file"
   done
+
+  local total_mappings="${#mapping_files[@]}"
+  local completed_count="$already_complete"
+  local failures=0
+  local structure_file resname
+  local -a structure_resnames=()
+  local -a remaining_resnames=()
+  local -a failed_attempts=()
+  local cmd
+
+  if [[ "${#pending_mapping_by_resname[@]}" -gt 0 ]]; then
+    for structure_file in "${atomistic_files[@]}"; do
+      if [[ "${#pending_mapping_by_resname[@]}" -eq 0 ]]; then
+        break
+      fi
+
+      mapfile -t structure_resnames < <(list_structure_resnames "$py_bin" "$structure_file")
+      if [[ ${#structure_resnames[@]} -eq 0 ]]; then
+        echo "Skipping $(basename "$structure_file"): no residue names found"
+        continue
+      fi
+
+      remaining_resnames=()
+      for resname in "${structure_resnames[@]}"; do
+        if [[ -n "${pending_mapping_by_resname[$resname]:-}" ]]; then
+          remaining_resnames+=("$resname")
+        fi
+      done
+
+      if [[ ${#remaining_resnames[@]} -eq 0 ]]; then
+        continue
+      fi
+
+      echo "Scanning $(basename "$structure_file") for: ${remaining_resnames[*]}"
+
+      for resname in "${remaining_resnames[@]}"; do
+        mapping_file="${pending_mapping_by_resname[$resname]}"
+        out_file="$mapping_output_dir/$(basename "$mapping_file")"
+        attempted_mapping_by_resname["$resname"]=1
+        echo "[$((completed_count + 1))/$total_mappings] $(basename "$mapping_file") <- $(basename "$structure_file") [$resname]"
+
+        cmd=(
+          "$py_bin" -m cgmap.scripts.assign_hierarchical_labels
+          -m "$mapping_file"
+          -a "$structure_file"
+          -o "$out_file"
+          --mapping-folder "$mapping_input_dir"
+          --distance-threshold "$distance_threshold"
+        )
+        if [[ "$overwrite_existing" -eq 1 ]]; then
+          cmd+=(--overwrite-existing)
+        fi
+
+        if "${cmd[@]}"; then
+          unset 'pending_mapping_by_resname[$resname]'
+          ((completed_count+=1))
+        else
+          echo "WARNING: failed to complete $(basename "$mapping_file") using $(basename "$structure_file"); will keep searching" >&2
+          failed_attempts+=("$(basename "$mapping_file") <- $(basename "$structure_file") [$resname]")
+        fi
+      done
+    done
+  fi
 
   if [[ -f "$mapping_input_dir/bead_types.yaml" && ! -f "$mapping_output_dir/bead_types.yaml" ]]; then
     cp "$mapping_input_dir/bead_types.yaml" "$mapping_output_dir/bead_types.yaml"
     echo "Copied bead_types.yaml to output mapping folder"
+  fi
+
+  if [[ "${#pending_mapping_by_resname[@]}" -gt 0 ]]; then
+    local unresolved
+    for unresolved in "${!pending_mapping_by_resname[@]}"; do
+      if [[ -n "${attempted_mapping_by_resname[$unresolved]:-}" ]]; then
+        echo "ERROR: found residue ${unresolved} in structure files, but all completion attempts failed for $(basename "${pending_mapping_by_resname[$unresolved]}")" >&2
+      else
+        echo "ERROR: no structure file contained residue ${unresolved} for $(basename "${pending_mapping_by_resname[$unresolved]}")" >&2
+      fi
+      ((failures+=1))
+    done
+  fi
+
+  if [[ "$failures" -eq 0 && "${#failed_attempts[@]}" -gt 0 ]]; then
+    echo "Resolved after retrying with later structure files:"
+    printf '  %s\n' "${failed_attempts[@]}"
   fi
 
   if [[ "$failures" -gt 0 ]]; then
