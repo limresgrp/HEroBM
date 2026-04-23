@@ -12,6 +12,7 @@ Usage:
   ${SCRIPT_NAME} cg-stats [args]         # Compute CG bead distance statistics (herobm-cgstats)
   ${SCRIPT_NAME} deploy [args]           # Deploy model with HEroBM metadata (herobm-deploy)
   ${SCRIPT_NAME} backmap [args]          # Run inference/backmapping (herobm-backmap)
+  ${SCRIPT_NAME} test [args]             # Evaluate RMSD on NPZ or atomistic inputs (herobm-test)
 
 Interactive mode:
   ${SCRIPT_NAME}
@@ -24,10 +25,11 @@ Options:
   4 / cg-stats         : Compute bead-distance statistics CSV for optional CG pre-minimization
   5 / deploy           : Deploy a trained checkpoint with mapping/bead metadata embedded
   6 / backmap          : Run backmapping inference with trained/deployed model
+  7 / test             : Map to CG, backmap, and compute RMSD against references
   h / --help  : Show help and option descriptions
   q           : Quit interactive mode
 
-Legacy aliases are still accepted: option1..option6 and 1..6.
+Legacy aliases are still accepted: option1..option7 and 1..7.
 Run '${SCRIPT_NAME} <command> --help' for details.
 USAGE
 }
@@ -43,6 +45,7 @@ Usage:
     --atomistic-dir DIR \
     --mapping-output-dir DIR \
     [--distance-threshold FLOAT] \
+    [--skip-missing-structures] \
     [--overwrite-existing] \
     [--python PYTHON_EXE]
 
@@ -53,6 +56,7 @@ Required arguments:
 
 Optional arguments:
   --distance-threshold FLOAT Passed to assign_hierarchical_labels (default: 0.25)
+  --skip-missing-structures Continue even if some mappings have no matching residue in atomistic input
   --overwrite-existing       Recompute labels even if already present
   --python PYTHON_EXE        Python executable to use (default: python)
 
@@ -61,6 +65,8 @@ Notes:
   in each structure, and completes any still-incomplete mapping YAML whose `molecule` matches.
 - Mapping YAMLs that are already complete are copied/skipped unless `--overwrite-existing` is used.
 - File names in `--atomistic-dir` do not matter; only the structure format and contained residue names matter.
+- By default the command fails if any incomplete mapping has no matching residue in the atomistic input.
+  Use `--skip-missing-structures` to continue and manually complete those copied YAMLs later.
 USAGE
 }
 
@@ -237,6 +243,67 @@ Optional arguments:
 USAGE
 }
 
+print_option7_help() {
+  cat <<USAGE
+Command: test
+Evaluate a model by mapping atomistic input to CG, backmapping, and computing RMSD using herobm-test
+
+Usage:
+  ${SCRIPT_NAME} test \
+    --model FILE \
+    --output DIR \
+    [--npz PATH | --pdb-dir DIR | --pdb-file FILE [--traj-file FILE]] \
+    [--traj-dir PATH] \
+    [--input-format EXT] \
+    [--traj-format EXT] \
+    [--filter FILE] \
+    [--input-selection SEL] \
+    [--mapping DIR] \
+    [--bead-types-filename FILE] \
+    [--bead-stats FILE] \
+    [--ignore-hydrogens | --predict-hydrogens] \
+    [--base-rmsd-selection NAME ...] \
+    [--rmsd-selection LABEL=SELECTION ...] \
+    [--trajslice SLICE] \
+    [--device DEVICE] \
+    [--chunking INT] \
+    [--tolerance FLOAT]
+
+Required arguments:
+  --model FILE               Trained/deployed model file
+  --output DIR               Output directory for generated structures and RMSD CSVs
+
+Input arguments:
+  --npz PATH                 NPZ file or folder of NPZ files to evaluate
+  --pdb-dir DIR              Folder of atomistic structures to map on the fly
+  --pdb-file FILE            Single atomistic structure to map on the fly
+  --traj-file FILE           Trajectory paired with --pdb-file
+  --traj-dir PATH            Trajectory file or folder paired with --pdb-dir
+  --input-format EXT         Structure extension for --pdb-dir scan (default: pdb)
+  --traj-format EXT          Trajectory extension when --traj-dir is a folder
+  --filter FILE              Text file listing basenames to include from --pdb-dir
+  --input-selection SEL      Selection used when generating NPZs from raw atomistic input
+
+Model/evaluation arguments:
+  --mapping DIR              Mapping folder (override model metadata; required for raw input unless embedded)
+  --bead-types-filename FILE Bead types file (override metadata)
+  --bead-stats FILE          Bead stats CSV (override metadata)
+  --ignore-hydrogens         Ignore H* hierarchy labels (override metadata)
+  --predict-hydrogens        Use H* hierarchy labels (override metadata)
+  --base-rmsd-selection NAME Built-in RMSD selection alias. Available: protein-backbone, protein-sidechains
+  --rmsd-selection ...       Custom RMSD selection in the form label=MDAnalysis_selection
+  --trajslice SLICE          Trajectory slice, e.g. ::10
+  --device DEVICE            Inference device (default: cuda:0)
+  --chunking INT             Max atoms per chunk
+  --tolerance FLOAT          Atomistic minimization tolerance when writing structures (default: 0)
+
+Notes:
+- RMSD for all atoms is always computed.
+- Built-in RMSD aliases are optional extras on top of the all-atoms metric.
+- Output includes generated CG/backmapped/true structures plus `rmsd_per_frame.csv` and `rmsd_summary.csv`.
+USAGE
+}
+
 require_dir() {
   local d="$1"
   local label="$2"
@@ -277,7 +344,7 @@ prompt_optional() {
 prompt_option_choice() {
   local choice
   while true; do
-    read -r -p $'Choose a command:\n  1) complete-mapping  - Complete mapping YAML files by assigning hierarchical labels\n  2) build-dataset     - Build NPZ dataset from atomistic structures using completed mappings\n  3) train             - Run training (geqtrain-train)\n  4) cg-stats          - Compute bead-distance statistics CSV (herobm-cgstats)\n  5) deploy            - Deploy trained model with HEroBM metadata (herobm-deploy)\n  6) backmap           - Run inference/backmapping (herobm-backmap)\n  h) Show help and option descriptions\n  q) Quit\nSelection: ' choice
+    read -r -p $'Choose a command:\n  1) complete-mapping  - Complete mapping YAML files by assigning hierarchical labels\n  2) build-dataset     - Build NPZ dataset from atomistic structures using completed mappings\n  3) train             - Run training (geqtrain-train)\n  4) cg-stats          - Compute bead-distance statistics CSV (herobm-cgstats)\n  5) deploy            - Deploy trained model with HEroBM metadata (herobm-deploy)\n  6) backmap           - Run inference/backmapping (herobm-backmap)\n  7) test              - Evaluate RMSD via map->backmap (herobm-test)\n  h) Show help and option descriptions\n  q) Quit\nSelection: ' choice
     case "$choice" in
       1|complete-mapping) echo "complete-mapping"; return 0 ;;
       2|build-dataset) echo "build-dataset"; return 0 ;;
@@ -285,6 +352,7 @@ prompt_option_choice() {
       4|cg-stats) echo "cg-stats"; return 0 ;;
       5|deploy) echo "deploy"; return 0 ;;
       6|backmap) echo "backmap"; return 0 ;;
+      7|test) echo "test"; return 0 ;;
       h|H) echo "help"; return 0 ;;
       q|Q) echo "quit"; return 0 ;;
       *) echo "Invalid choice: $choice" >&2 ;;
@@ -369,6 +437,7 @@ run_option1() {
   local atomistic_dir=""
   local mapping_output_dir=""
   local distance_threshold="0.25"
+  local skip_missing_structures=0
   local overwrite_existing=0
   local py_bin="python"
 
@@ -389,6 +458,10 @@ run_option1() {
       --distance-threshold)
         distance_threshold="$2"
         shift 2
+        ;;
+      --skip-missing-structures)
+        skip_missing_structures=1
+        shift
         ;;
       --overwrite-existing)
         overwrite_existing=1
@@ -481,10 +554,12 @@ run_option1() {
   local total_mappings="${#mapping_files[@]}"
   local completed_count="$already_complete"
   local failures=0
+  local missing_structures=0
   local structure_file resname
   local -a structure_resnames=()
   local -a remaining_resnames=()
   local -a failed_attempts=()
+  local -a skipped_missing_mappings=()
   local cmd
 
   if [[ "${#pending_mapping_by_resname[@]}" -gt 0 ]]; then
@@ -551,16 +626,33 @@ run_option1() {
     for unresolved in "${!pending_mapping_by_resname[@]}"; do
       if [[ -n "${attempted_mapping_by_resname[$unresolved]:-}" ]]; then
         echo "ERROR: found residue ${unresolved} in structure files, but all completion attempts failed for $(basename "${pending_mapping_by_resname[$unresolved]}")" >&2
+        ((failures+=1))
       else
-        echo "ERROR: no structure file contained residue ${unresolved} for $(basename "${pending_mapping_by_resname[$unresolved]}")" >&2
+        mapping_file="${pending_mapping_by_resname[$unresolved]}"
+        out_file="$mapping_output_dir/$(basename "$mapping_file")"
+        if [[ "$skip_missing_structures" -eq 1 ]]; then
+          if [[ ! -f "$out_file" ]] || ! cmp -s "$mapping_file" "$out_file"; then
+            cp "$mapping_file" "$out_file"
+          fi
+          echo "WARNING: no structure file contained residue ${unresolved} for $(basename "$mapping_file"); copied raw mapping to output for manual completion" >&2
+          skipped_missing_mappings+=("$(basename "$mapping_file") [$unresolved]")
+          ((missing_structures+=1))
+        else
+          echo "ERROR: no structure file contained residue ${unresolved} for $(basename "$mapping_file"). Re-run with --skip-missing-structures to continue and manually complete that YAML." >&2
+          ((failures+=1))
+        fi
       fi
-      ((failures+=1))
     done
   fi
 
   if [[ "$failures" -eq 0 && "${#failed_attempts[@]}" -gt 0 ]]; then
     echo "Resolved after retrying with later structure files:"
     printf '  %s\n' "${failed_attempts[@]}"
+  fi
+
+  if [[ "$missing_structures" -gt 0 ]]; then
+    echo "Skipped $missing_structures mapping(s) with no matching atomistic residue. Complete these manually in $mapping_output_dir:"
+    printf '  %s\n' "${skipped_missing_mappings[@]}"
   fi
 
   if [[ "$failures" -gt 0 ]]; then
@@ -1166,8 +1258,248 @@ run_option6() {
   echo "Backmapping completed successfully. Output folder: $output_dir"
 }
 
+run_option7() {
+  local model_path=""
+  local output_dir="./test_output"
+  local npz_path=""
+  local pdb_dir=""
+  local pdb_file=""
+  local traj_file=""
+  local traj_dir=""
+  local input_format="pdb"
+  local traj_format=""
+  local filter_file=""
+  local input_selection="all"
+  local mapping_dir=""
+  local bead_types_filename=""
+  local bead_stats=""
+  local ignore_hydrogens=""
+  local trajslice=""
+  local device="cuda:0"
+  local chunking=""
+  local tolerance="0"
+  local -a base_rmsd_selections=()
+  local -a rmsd_selections=()
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --model)
+        model_path="$2"
+        shift 2
+        ;;
+      --output)
+        output_dir="$2"
+        shift 2
+        ;;
+      --npz)
+        npz_path="$2"
+        shift 2
+        ;;
+      --pdb-dir)
+        pdb_dir="$2"
+        shift 2
+        ;;
+      --pdb-file)
+        pdb_file="$2"
+        shift 2
+        ;;
+      --traj-file)
+        traj_file="$2"
+        shift 2
+        ;;
+      --traj-dir)
+        traj_dir="$2"
+        shift 2
+        ;;
+      --input-format)
+        input_format="$2"
+        shift 2
+        ;;
+      --traj-format)
+        traj_format="$2"
+        shift 2
+        ;;
+      --filter)
+        filter_file="$2"
+        shift 2
+        ;;
+      --input-selection)
+        input_selection="$2"
+        shift 2
+        ;;
+      --mapping)
+        mapping_dir="$2"
+        shift 2
+        ;;
+      --bead-types-filename)
+        bead_types_filename="$2"
+        shift 2
+        ;;
+      --bead-stats)
+        bead_stats="$2"
+        shift 2
+        ;;
+      --ignore-hydrogens)
+        ignore_hydrogens="true"
+        shift
+        ;;
+      --predict-hydrogens)
+        ignore_hydrogens="false"
+        shift
+        ;;
+      --base-rmsd-selection)
+        base_rmsd_selections+=("$2")
+        shift 2
+        ;;
+      --rmsd-selection)
+        rmsd_selections+=("$2")
+        shift 2
+        ;;
+      --trajslice)
+        trajslice="$2"
+        shift 2
+        ;;
+      --device)
+        device="$2"
+        shift 2
+        ;;
+      --chunking)
+        chunking="$2"
+        shift 2
+        ;;
+      --tolerance)
+        tolerance="$2"
+        shift 2
+        ;;
+      -h|--help)
+        print_option7_help
+        exit 0
+        ;;
+      *)
+        echo "Unknown argument for test: $1" >&2
+        print_option7_help
+        exit 1
+        ;;
+    esac
+  done
+
+  if [[ -z "$model_path" ]]; then
+    echo "Error: test requires --model" >&2
+    print_option7_help
+    exit 1
+  fi
+
+  local input_modes=0
+  [[ -n "$npz_path" ]] && ((input_modes+=1))
+  [[ -n "$pdb_dir" ]] && ((input_modes+=1))
+  [[ -n "$pdb_file" ]] && ((input_modes+=1))
+  if [[ "$input_modes" -ne 1 ]]; then
+    echo "Error: test requires exactly one of --npz, --pdb-dir, or --pdb-file" >&2
+    print_option7_help
+    exit 1
+  fi
+
+  require_file "$model_path" "model"
+  if [[ -n "$npz_path" ]]; then
+    if [[ ! -e "$npz_path" ]]; then
+      echo "Error: npz input does not exist: $npz_path" >&2
+      exit 1
+    fi
+  fi
+  if [[ -n "$pdb_dir" ]]; then
+    require_dir "$pdb_dir" "pdb dir"
+  fi
+  if [[ -n "$pdb_file" ]]; then
+    require_file "$pdb_file" "pdb file"
+  fi
+  if [[ -n "$traj_file" ]]; then
+    require_file "$traj_file" "traj file"
+  fi
+  if [[ -n "$traj_dir" && ! -e "$traj_dir" ]]; then
+    echo "Error: traj dir/file does not exist: $traj_dir" >&2
+    exit 1
+  fi
+  if [[ -n "$mapping_dir" ]]; then
+    require_dir "$mapping_dir" "mapping dir"
+  fi
+  if [[ -n "$bead_stats" ]]; then
+    require_file "$bead_stats" "bead stats csv"
+  fi
+  if [[ -n "$filter_file" ]]; then
+    require_file "$filter_file" "filter file"
+  fi
+
+  mkdir -p "$output_dir"
+
+  local cmd=(
+    herobm-test
+    -mo "$model_path"
+    -o "$output_dir"
+    --input-selection "$input_selection"
+    -d "$device"
+    -t "$tolerance"
+  )
+  if [[ -n "$npz_path" ]]; then
+    cmd+=(--npz "$npz_path")
+  fi
+  if [[ -n "$pdb_dir" ]]; then
+    cmd+=(--pdb-dir "$pdb_dir" --input-format "$input_format")
+  fi
+  if [[ -n "$pdb_file" ]]; then
+    cmd+=(--pdb-file "$pdb_file")
+  fi
+  if [[ -n "$traj_file" ]]; then
+    cmd+=(--traj-file "$traj_file")
+  fi
+  if [[ -n "$traj_dir" ]]; then
+    cmd+=(--traj-dir "$traj_dir")
+  fi
+  if [[ -n "$traj_format" ]]; then
+    cmd+=(--traj-format "$traj_format")
+  fi
+  if [[ -n "$filter_file" ]]; then
+    cmd+=(--filter "$filter_file")
+  fi
+  if [[ -n "$mapping_dir" ]]; then
+    cmd+=(-m "$mapping_dir")
+  fi
+  if [[ -n "$bead_types_filename" ]]; then
+    cmd+=(-b "$bead_types_filename")
+  fi
+  if [[ -n "$bead_stats" ]]; then
+    cmd+=(-bs "$bead_stats")
+  fi
+  if [[ "$ignore_hydrogens" == "true" ]]; then
+    cmd+=(--ignore-hydrogens)
+  elif [[ "$ignore_hydrogens" == "false" ]]; then
+    cmd+=(--predict-hydrogens)
+  fi
+  if [[ -n "$trajslice" ]]; then
+    cmd+=(--trajslice "$trajslice")
+  fi
+  if [[ -n "$chunking" ]]; then
+    cmd+=(-c "$chunking")
+  fi
+  if [[ ${#base_rmsd_selections[@]} -gt 0 ]]; then
+    local base_sel
+    for base_sel in "${base_rmsd_selections[@]}"; do
+      cmd+=(--base-rmsd-selection "$base_sel")
+    done
+  fi
+  if [[ ${#rmsd_selections[@]} -gt 0 ]]; then
+    local rmsd_sel
+    for rmsd_sel in "${rmsd_selections[@]}"; do
+      cmd+=(--rmsd-selection "$rmsd_sel")
+    done
+  fi
+
+  echo "Running: ${cmd[*]}"
+  "${cmd[@]}"
+  echo "Test completed successfully. Output folder: $output_dir"
+}
+
 run_option1_interactive() {
-  local mapping_input_dir atomistic_dir mapping_output_dir distance_threshold py_bin overwrite
+  local mapping_input_dir atomistic_dir mapping_output_dir distance_threshold py_bin overwrite skip_missing
 
   echo
   echo "Command selected: complete-mapping (complete mapping YAML files)"
@@ -1177,6 +1509,7 @@ run_option1_interactive() {
   distance_threshold="$(prompt_with_default "Distance threshold" "0.25")"
   py_bin="$(prompt_with_default "Python executable" "python")"
   overwrite="$(prompt_with_default "Overwrite existing labels? (y/N)" "N")"
+  skip_missing="$(prompt_with_default "Skip mappings missing atomistic residues? (y/N)" "N")"
 
   local cmd=(
     --mapping-input-dir "$mapping_input_dir"
@@ -1187,6 +1520,9 @@ run_option1_interactive() {
   )
   if [[ "$overwrite" =~ ^[Yy]$ ]]; then
     cmd+=(--overwrite-existing)
+  fi
+  if [[ "$skip_missing" =~ ^[Yy]$ ]]; then
+    cmd+=(--skip-missing-structures)
   fi
 
   run_option1 "${cmd[@]}"
@@ -1437,6 +1773,133 @@ run_option6_interactive() {
   run_option6 "${cmd[@]}"
 }
 
+run_option7_interactive() {
+  local model_path output_dir input_mode npz_path pdb_dir pdb_file traj_file traj_dir
+  local input_format traj_format filter_file input_selection mapping_dir bead_types_filename bead_stats
+  local ignore_h trajslice device chunking tolerance base_selections custom_selections
+  local -a cmd base_arr custom_arr
+
+  echo
+  echo "Command selected: test (map to CG, backmap, compute RMSD)"
+  read -r -p "Model file: " model_path
+  output_dir="$(prompt_with_default "Output directory" "./test_output")"
+
+  while true; do
+    read -r -p $'Select input mode:\n  1) NPZ file or folder\n  2) Folder with atomistic structures\n  3) Single structure (+ optional trajectory)\nMode: ' input_mode
+    case "$input_mode" in
+      1|npz|NPZ)
+        input_mode="npz"
+        read -r -p "NPZ file or folder: " npz_path
+        break
+        ;;
+      2|folder|FOLDER)
+        input_mode="folder"
+        read -r -p "Structure folder: " pdb_dir
+        traj_dir="$(prompt_optional "Trajectory file/folder paired with structure folder")"
+        input_format="$(prompt_with_default "Input format" "pdb")"
+        traj_format="$(prompt_optional "Trajectory format (required if trajectory input is a folder)")"
+        filter_file="$(prompt_optional "Filter file (optional)")"
+        break
+        ;;
+      3|single|SINGLE)
+        input_mode="single"
+        read -r -p "Structure file (.pdb/.gro): " pdb_file
+        traj_file="$(prompt_optional "Trajectory file (.xtc/.trr)")"
+        break
+        ;;
+      *)
+        echo "Invalid input mode: $input_mode" >&2
+        ;;
+    esac
+  done
+
+  input_selection="$(prompt_with_default "Input selection for raw atomistic mapping" "all")"
+  mapping_dir="$(prompt_optional "Mapping directory (optional, required for raw input unless embedded in model)")"
+  bead_types_filename="$(prompt_optional "Bead types filename/path (optional)")"
+  bead_stats="$(prompt_optional "Bead stats CSV (optional)")"
+  ignore_h="$(prompt_optional "Ignore hydrogens [y=yes, n=no, blank=use metadata/default]")"
+  trajslice="$(prompt_optional "Trajectory slice (optional)")"
+  device="$(prompt_with_default "Device" "cuda:0")"
+  chunking="$(prompt_optional "Chunking (optional)")"
+  tolerance="$(prompt_with_default "Atomistic minimization tolerance" "0")"
+  base_selections="$(prompt_optional "Base RMSD selections (comma separated: protein-backbone,protein-sidechains)")"
+  custom_selections="$(prompt_optional "Custom RMSD selections (semicolon separated label=selection)")"
+
+  cmd=(
+    --model "$model_path"
+    --output "$output_dir"
+    --input-selection "$input_selection"
+    --device "$device"
+    --tolerance "$tolerance"
+  )
+  case "$input_mode" in
+    npz)
+      cmd+=(--npz "$npz_path")
+      ;;
+    folder)
+      cmd+=(--pdb-dir "$pdb_dir" --input-format "$input_format")
+      if [[ -n "$traj_dir" ]]; then
+        cmd+=(--traj-dir "$traj_dir")
+      fi
+      if [[ -n "$traj_format" ]]; then
+        cmd+=(--traj-format "$traj_format")
+      fi
+      if [[ -n "$filter_file" ]]; then
+        cmd+=(--filter "$filter_file")
+      fi
+      ;;
+    single)
+      cmd+=(--pdb-file "$pdb_file")
+      if [[ -n "$traj_file" ]]; then
+        cmd+=(--traj-file "$traj_file")
+      fi
+      ;;
+  esac
+  if [[ -n "$mapping_dir" ]]; then
+    cmd+=(--mapping "$mapping_dir")
+  fi
+  if [[ -n "$bead_types_filename" ]]; then
+    cmd+=(--bead-types-filename "$bead_types_filename")
+  fi
+  if [[ -n "$bead_stats" ]]; then
+    cmd+=(--bead-stats "$bead_stats")
+  fi
+  if [[ "$ignore_h" =~ ^[Yy]$ ]]; then
+    cmd+=(--ignore-hydrogens)
+  elif [[ "$ignore_h" =~ ^[Nn]$ ]]; then
+    cmd+=(--predict-hydrogens)
+  fi
+  if [[ -n "$trajslice" ]]; then
+    cmd+=(--trajslice "$trajslice")
+  fi
+  if [[ -n "$chunking" ]]; then
+    cmd+=(--chunking "$chunking")
+  fi
+  if [[ -n "$base_selections" ]]; then
+    IFS=',' read -r -a base_arr <<< "$base_selections"
+    local base_sel
+    for base_sel in "${base_arr[@]}"; do
+      base_sel="${base_sel//[[:space:]]/}"
+      if [[ -n "$base_sel" ]]; then
+        cmd+=(--base-rmsd-selection "$base_sel")
+      fi
+    done
+  fi
+  if [[ -n "$custom_selections" ]]; then
+    IFS=';' read -r -a custom_arr <<< "$custom_selections"
+    local custom_sel
+    for custom_sel in "${custom_arr[@]}"; do
+      custom_sel="${custom_sel#"${custom_sel%%[![:space:]]*}"}"
+      custom_sel="${custom_sel%"${custom_sel##*[![:space:]]}"}"
+      if [[ -n "$custom_sel" ]]; then
+        cmd+=(--rmsd-selection "$custom_sel")
+      fi
+    done
+  fi
+
+  run_option7 "${cmd[@]}"
+}
+
 if [[ $# -lt 1 ]]; then
   choice="$(prompt_option_choice)"
   case "$choice" in
@@ -1457,6 +1920,9 @@ if [[ $# -lt 1 ]]; then
       ;;
     backmap)
       run_option6_interactive
+      ;;
+    test)
+      run_option7_interactive
       ;;
     help)
       print_main_help
@@ -1492,6 +1958,10 @@ case "$1" in
   backmap|option6|6)
     shift
     run_option6 "$@"
+    ;;
+  test|option7|7)
+    shift
+    run_option7 "$@"
     ;;
   -h|--help)
     print_main_help
