@@ -31,6 +31,22 @@ Use the interactive console script in non-interactive mode (`backmap`):
   --atomistic
 ```
 
+If the CG PDB uses a different residue name than the mapping expects, keep your
+selection as usual and remap the selected residue name for backmapping:
+
+```bash
+./interactive_console.sh backmap \
+  --model deployed/protein.CA/Mar2026.pt \
+  --input data/A2A/md/a2a.pdb \
+  --selection "resname COMP13" \
+  --resname-map COMP13=CH1 \
+  --output output/readme_inference \
+  --device cuda:0 \
+  --atomistic
+```
+
+You can pass `--resname-map` multiple times to remap several residue names.
+
 If you prefer prompts:
 
 ```bash
@@ -49,6 +65,11 @@ then choose command `backmap` (or `6`).
 - `cg-stats`: compute CG distance statistics CSV (`herobm-cgstats`, optional)
 - `deploy`: deploy model with metadata (`herobm-deploy`)
 - `backmap`: run inference/backmapping (`herobm-backmap`)
+
+The backmapping command accepts `--resname-map OLD=NEW` to rename selected CG
+residues before the mapping step. This is useful when a structure file uses a
+different ligand residue name than the corresponding mapping YAML. The option
+can be repeated multiple times.
 
 ## Documentation
 

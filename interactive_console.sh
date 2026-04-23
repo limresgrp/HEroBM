@@ -214,6 +214,7 @@ Usage:
     [--mapping DIR] \
     [--bead-types-filename FILE] \
     [--bead-stats FILE] \
+    [--resname-map OLD=NEW] \
     [--ignore-hydrogens | --predict-hydrogens] \
     [--trajslice SLICE] \
     [--chunking INT] \
@@ -233,6 +234,8 @@ Optional arguments:
   --mapping DIR              Mapping folder (override model metadata)
   --bead-types-filename FILE Bead types file (override metadata)
   --bead-stats FILE          Bead stats CSV (override metadata)
+  --resname-map OLD=NEW      Remap selected CG residue names before backmapping
+                             (can be repeated multiple times)
   --ignore-hydrogens         Ignore H* hierarchy labels (override metadata)
   --predict-hydrogens        Use H* hierarchy labels (override metadata)
   --trajslice SLICE          Trajectory slice, e.g. ::10
@@ -339,6 +342,20 @@ prompt_optional() {
   local value
   read -r -p "${label} (leave blank to skip): " value
   echo "$value"
+}
+
+prompt_multi_value() {
+  local label="$1"
+  local value
+  local -a values=()
+
+  while true; do
+    read -r -p "${label} (leave blank to finish): " value
+    [[ -z "$value" ]] && break
+    values+=("$value")
+  done
+
+  printf '%s\n' "${values[@]}"
 }
 
 prompt_option_choice() {
@@ -1108,6 +1125,7 @@ run_option6() {
   local mapping_dir=""
   local bead_types_filename=""
   local bead_stats=""
+  local -a resname_maps=()
   local ignore_hydrogens=""
   local trajslice=""
   local chunking=""
@@ -1151,6 +1169,10 @@ run_option6() {
         ;;
       --bead-stats)
         bead_stats="$2"
+        shift 2
+        ;;
+      --resname-map)
+        resname_maps+=("$2")
         shift 2
         ;;
       --ignore-hydrogens)
@@ -1231,6 +1253,12 @@ run_option6() {
   fi
   if [[ -n "$bead_stats" ]]; then
     cmd+=(-bs "$bead_stats")
+  fi
+  if [[ ${#resname_maps[@]} -gt 0 ]]; then
+    local resname_map
+    for resname_map in "${resname_maps[@]}"; do
+      cmd+=(--resname-map "$resname_map")
+    done
   fi
   if [[ "$ignore_hydrogens" == "true" ]]; then
     cmd+=(--ignore-hydrogens)
@@ -1711,6 +1739,7 @@ run_option5_interactive() {
 run_option6_interactive() {
   local model_path input_file inputtraj output_dir selection device
   local mapping_dir bead_types_filename bead_stats ignore_h trajslice chunking num_steps tolerance atomistic
+  local -a resname_maps=()
 
   echo
   echo "Command selected: backmap (run inference/backmapping)"
@@ -1723,6 +1752,9 @@ run_option6_interactive() {
   mapping_dir="$(prompt_optional "Mapping directory (optional, overrides model metadata)")"
   bead_types_filename="$(prompt_optional "Bead types filename/path (optional)")"
   bead_stats="$(prompt_optional "Bead stats CSV (optional)")"
+  echo "Enter residue name remaps to apply after selection."
+  echo "Example: COMP13=CH1"
+  mapfile -t resname_maps < <(prompt_multi_value "Resname remap OLD=NEW")
   ignore_h="$(prompt_optional "Ignore hydrogens [y=yes, n=no, blank=use metadata/default]")"
   trajslice="$(prompt_optional "Trajectory slice (optional)")"
   chunking="$(prompt_optional "Chunking (optional)")"
@@ -1748,6 +1780,12 @@ run_option6_interactive() {
   fi
   if [[ -n "$bead_stats" ]]; then
     cmd+=(--bead-stats "$bead_stats")
+  fi
+  if [[ ${#resname_maps[@]} -gt 0 ]]; then
+    local resname_map
+    for resname_map in "${resname_maps[@]}"; do
+      cmd+=(--resname-map "$resname_map")
+    done
   fi
   if [[ "$ignore_h" =~ ^[Yy]$ ]]; then
     cmd+=(--ignore-hydrogens)

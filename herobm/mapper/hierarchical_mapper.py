@@ -1,9 +1,12 @@
+import logging
 import numpy as np
-from typing import List
+from typing import List, Optional, Sequence, Tuple
 from cgmap.mapping import Mapper
 from herobm.utils import DataDict
 from herobm.mapper.bead import HEroBMBeadMappingAtomSettings, HEroBMBeadMappingSettings, HEroBMBead
 import pandas as pd
+import MDAnalysis as mda
+import MDAnalysis.transformations as mdatrans
 
 
 def list2maskedarray(x, dim=-1):
@@ -34,6 +37,19 @@ def list2maskedarray(x, dim=-1):
         mask[tuple(slices)] = False
 
     return np.ma.masked_array(x_padded, mask=mask)
+
+
+def _apply_resname_mappings(atomgroup: mda.core.groups.AtomGroup, mappings: Optional[Sequence[Tuple[str, str]]]) -> int:
+    if not mappings:
+        return 0
+
+    remapped = 0
+    for old_resname, new_resname in mappings:
+        for residue in atomgroup.residues:
+            if residue.resname == old_resname:
+                residue.resname = new_resname
+                remapped += 1
+    return remapped
 
 class HierarchicalMapper(Mapper):
 
@@ -189,6 +205,52 @@ class HierarchicalMapper(Mapper):
         )
         super().__init__(args_dict=args_dict)
         self.noinvariants = args_dict.get('noinvariants', False)
+
+    def map_impl(self, input_filename, input_trajname):
+        self.config["input"] = input_filename
+        self.config["inputtraj"] = [input_trajname] if input_trajname is not None else []
+        logging.info(f"Mapping {input_filename} structure")
+
+        self._clear_map()
+
+        u = mda.Universe(
+            self.config.get("input"),
+            *self.config.get("inputtraj", []),
+            **self.config.get("extrakwargs", {}),
+        )
+
+        selection = self.config.get("selection", "all")
+        self.selection = u.select_atoms(selection)
+        remapped = _apply_resname_mappings(self.selection, self.config.get("resname_map"))
+        if remapped > 0:
+            logging.info("Applied %d residue name remapping(s) to the selected atoms.", remapped)
+
+        try:
+            if self.config.get("align", False):
+                dims = getattr(u.trajectory.ts, "dimensions", None)
+                if dims is not None and np.any(np.asarray(dims)[:3] > 0):
+                    atoms_ag = self.selection if len(self.selection) > 0 else u.atoms
+                    if not hasattr(atoms_ag, 'bonds'):
+                        atoms_ag.guess_bonds()
+                    # Remove PBC jumps and recenter frames before any mapping steps.
+                    u.trajectory.add_transformations(
+                        mdatrans.unwrap(atoms_ag),
+                        mdatrans.center_in_box(atoms_ag, wrap=True),
+                    )
+                    logging.info("Trajectory unwrapped and centered")
+        except Exception as exc:
+            logging.warning(f"Could not preprocess trajectory (unwrap/center): {exc}")
+
+        self.universe = u
+
+        trajslice = self.config.get("trajslice", None)
+        if trajslice is None:
+            self.trajectory = u.trajectory
+        else:
+            self.trajectory = u.trajectory[trajslice]
+
+        self._map_impl_func()
+        return self
     
     def _load_mappings(self, bms_class=HEroBMBeadMappingSettings, bmas_class=HEroBMBeadMappingAtomSettings):
         return super(HierarchicalMapper, self)._load_mappings(bms_class=bms_class, bmas_class=bmas_class)

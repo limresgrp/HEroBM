@@ -2,7 +2,7 @@ import argparse
 import logging
 import re
 import yaml
-from typing import Dict, Union
+from typing import Dict, List, Optional, Sequence, Tuple, Union
 from pathlib import Path
 from herobm.backmapping.hierarchical_backmapping import HierarchicalBackmapping, load_model
 from herobm.utils.DataDict import MAPPING_KEY, BEAD_TYPES_KEY, BEAD_STATS_KEY, IGNORE_HYDROGENS_KEY
@@ -82,6 +82,21 @@ def _infer_ignore_hydrogens_from_mapping(mapping: str, model_output_width: int):
     if model_output_width == max_all and model_output_width != max_noh:
         return False
     return None
+
+
+def _parse_resname_mappings(specs: Optional[Sequence[str]]) -> List[Tuple[str, str]]:
+    if not specs:
+        return []
+
+    mappings: List[Tuple[str, str]] = []
+    for spec in specs:
+        if "=" not in spec:
+            raise ValueError(f"Invalid --resname-map value '{spec}'. Expected OLD=NEW.")
+        old_resname, new_resname = (part.strip() for part in spec.split("=", 1))
+        if not old_resname or not new_resname:
+            raise ValueError(f"Invalid --resname-map value '{spec}'. Expected OLD=NEW.")
+        mappings.append((old_resname, new_resname))
+    return mappings
 
 def run_backmapping(
     model, 
@@ -174,6 +189,13 @@ def main():
     processing_group = parser.add_argument_group("Processing and Selection Arguments")
     processing_group.add_argument("-s", "--selection", type=str, default="all", help="Atom selection string (MDAnalysis format).")
     processing_group.add_argument("-ts", "--trajslice", type=str, help="Slice of the trajectory (e.g., '900:1000:10').")
+    processing_group.add_argument(
+        "--resname-map",
+        action="append",
+        default=[],
+        metavar="OLD=NEW",
+        help="Rename a selected residue from OLD to NEW before mapping. Can be passed multiple times.",
+    )
     processing_group.add_argument("-d", "--device", type=str, default="cuda:0", help="Torch device to use.")
     processing_group.add_argument("-c", "--chunking", type=int, default=0, help="Enable chunked processing of the input trajectory, setting the max number of atoms per batch.")
     
@@ -233,6 +255,7 @@ def main():
 
     # Create a dictionary from the parsed arguments for HierarchicalBackmapping
     args_dict = vars(args)
+    args_dict["resname_map"] = _parse_resname_mappings(args.resname_map)
 
     # This seems to be a fixed requirement for your backmapping class
     args_dict["noinvariants"] = True
